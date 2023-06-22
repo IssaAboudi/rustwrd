@@ -1,57 +1,76 @@
 #![allow(non_snake_case)]
+#![allow(unused_imports)]
 
+use std::fs::read;
 use std::io;
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, stdin};
+use std::os::fd::AsRawFd;
+use crossterm::terminal::enable_raw_mode;
+use nix::libc::{ISTRIP, STDIN_FILENO};
+use nix::sys::termios;
 
-fn read_data<'a>(buf: &'a mut String, filepath: &str) -> Result<&'a str, std::io::Error>{
-    let mut file = File::open(filepath)?;
-
-    file.read_to_string(buf)?;
-    println!("Reading from file:\n{}", buf);
-    Ok("Ran Successfully")
+struct Terminal {
+    orig_termios : termios::Termios
 }
 
-fn write_data<'a>(buf: &'a mut String, filepath: &str) -> Result<&'a str, std::io::Error>{
-    let mut file = File::create(filepath)?;
+impl Terminal {
 
-    println!("What would you like to write to the file: \n");
-    io::stdin().read_line(buf).expect("Error with message");
+    fn enableRawMode(&mut self) {
+        let fd = stdin().as_raw_fd(); //file descriptor for raw stdin
+        self.orig_termios = termios::tcgetattr(fd).unwrap();
+        let mut raw = self.orig_termios.clone();
 
-    file.write(buf.trim().as_bytes())?;
-    Ok("Ran Successfully")
+        raw.input_flags.remove(termios::InputFlags::IXON // disable sw control flow comamnds
+            | termios::InputFlags::ICRNL
+            //Other flags
+            | termios::InputFlags::BRKINT //break condition causes a SIGINT signal (^c)
+            | termios::InputFlags::INPCK // enables parity checking
+            | termios::InputFlags::ISTRIP // 8th bit of each input byte to be stripped
+        );
+        raw.local_flags.remove(termios::LocalFlags::ECHO //disables your input being spit back to you
+            | termios::LocalFlags::ICANON //disables cannonical mode
+            | termios::LocalFlags::ISIG // disables interrupts (^c, ^z)
+            | termios::LocalFlags::IEXTEN // disables typing other characters literally (^v)
+        );
+        raw.output_flags.remove(termios::OutputFlags::OPOST // disable '\n' -> '\r\n' translation
+        );
+        termios::tcsetattr(fd, termios::SetArg::TCSAFLUSH, &raw).unwrap();
+        raw.control_flags.remove( termios::ControlFlags::CS8 // sets character size to 8 bits per byte
+        );
+    }
+
+    fn disableRawMode(&self) {
+        let fd = stdin().as_raw_fd();
+        termios::tcsetattr(fd, termios::SetArg::TCSAFLUSH, &self.orig_termios).unwrap();
+    }
 }
 
-fn main() {
+fn main() -> io::Result<()> {
+    let mut terminal = Terminal {
+        orig_termios: termios::tcgetattr(STDIN_FILENO).unwrap(),
+    };
 
-    //Select menu option - 0 is invalid
-    let mut option_sel = String::from("0");
+    terminal.enableRawMode();
 
-    //buffer of data we write to a file and load from file
-    let mut buf = String::new();
-
-    loop {
-        println!("Welcome to VIM Clone v0.0.1 Text Editor");
-        println!("1) Edit data");
-        println!("2) Read data");
-        println!("3) Exit app");
-
-
-
-        option_sel.clear();
-        io::stdin().read_line(  &mut option_sel).expect("Error with message");
-
-        let result = match option_sel.as_str().trim() {
-            "1" => {write_data(&mut buf, "./random_data.txt").expect("bad message"); "ran as planned"},
-            "2" => {read_data(&mut buf, "./random_data.txt").expect("bad"); "ran as planned"}
-            _ => "nothing happened",
-        };
-
-        println!("{}", result);
-
-        if option_sel.trim().to_string() == "3" {
+    let mut c: char;
+    //loop through all input bytes
+    for byte in stdin().bytes() {
+        let b = byte?;
+        c = b as char;
+        if c == 'q' {
+            //q exits the program
             break;
+        } else if c.is_ascii_control() {
+            //^ + letter gives the number of that letter
+            println!("{}\r\n", b);
+        } else {
+            //otherwise just display the character then it's ascii value
+            println!("[`{}`]: , {}\r\n", c, b);
         }
     }
 
+    terminal.disableRawMode();
+
+    println!("Program Ending");
+    Ok(())
 }
