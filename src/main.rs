@@ -2,6 +2,7 @@
 #![allow(unused_imports)]
 
 use std::f32::consts::E;
+use std::ffi::c_int;
 use std::fs::read;
 use std::io;
 use std::io::{Error, ErrorKind, Read, stdin, stdout, Write};
@@ -9,7 +10,7 @@ use std::io::ErrorKind::Other;
 use std::os::fd::AsRawFd;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use nix::errno::errno;
-use nix::libc::{EAGAIN, exit, ISTRIP, perror, STDIN_FILENO};
+use nix::libc::{c_ushort, EAGAIN, exit, ioctl, ISTRIP, perror, STDIN_FILENO, TIOCGWINSZ, winsize};
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
 use nix::unistd::acct::disable;
@@ -22,7 +23,9 @@ macro_rules! CTRL_KEY {
 }
 
 struct Terminal {
-    orig_termios : termios::Termios
+    orig_termios: termios::Termios,
+    screen_rows: c_int,
+    screen_cols: c_int,
 }
 
 impl Terminal {
@@ -60,6 +63,31 @@ impl Terminal {
     fn disableRawMode(&self) -> io::Result<()> {
         let fd = stdin().as_raw_fd();
         termios::tcsetattr(fd, termios::SetArg::TCSAFLUSH, &self.orig_termios).unwrap();
+        Ok(())
+    }
+
+    fn getWindowSize(&mut self, rows: &mut c_int, cols: &mut c_int) -> i32 {
+        let ws: winsize = unsafe { std::mem::zeroed() };
+
+        let result = unsafe { ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) };
+        if result == -1 || ws.ws_col == 0 {
+            return -1; //bad ioctl
+        } else {
+            *rows = ws.ws_row as c_int;
+            *cols = ws.ws_col as c_int;
+            0
+        }
+
+    }
+
+    fn initEditor(&mut self) -> io::Result<()> {
+        let mut rows = self.screen_rows;
+        let mut cols = self.screen_cols;
+        if self.getWindowSize(&mut rows, &mut cols) == -1 {
+            return Err(Error::new(Other, "fail at getWindowSize"))
+        }
+        self.screen_rows = rows;
+        self.screen_cols = cols;
         Ok(())
     }
 }
@@ -105,38 +133,42 @@ fn editorProcessKeypress() -> io::Result<bool>{
 }
 
 // write out
-fn editorRefreshScreen() -> io::Result<()> {
+fn editorRefreshScreen(terminal: &Terminal) -> io::Result<()> {
     let _status = stdout().write_all(b"\x1b[2J")?;
     let _status = stdout().write_all(b"\x1b[H")?;
     stdout().flush()?;
 
-    editorDrawRows()?;
+    editorDrawRows(terminal)?;
     let _status = stdout().write_all(b"\x1b[H")?;
     Ok(())
 }
 
 // draw rows
-fn editorDrawRows() -> io::Result<()> {
+fn editorDrawRows(terminal : &Terminal) -> io::Result<()> {
     let mut i = 0;
     loop {
-        if i > 23 { break; }
+        if i > terminal.screen_rows { break; }
 
-        stdout().write(b"?\r\n")?;
-        stdout().flush()?;
+        stdout().write(b".\r\n")?;
         i += 1;
     }
+    stdout().flush()?;
     Ok(())
 }
 
 fn main() -> io::Result<()> {
     let mut terminal = Terminal {
         orig_termios: termios::tcgetattr(STDIN_FILENO)?,
+        screen_rows: 0,
+        screen_cols: 0,
     };
 
     terminal.enableRawMode()?;
+    terminal.initEditor()?;
+
 
     loop {
-        editorRefreshScreen()?;
+        editorRefreshScreen(&terminal)?;
         match editorProcessKeypress() {
             Ok(exit) => {
                 if exit == true {
@@ -146,7 +178,7 @@ fn main() -> io::Result<()> {
                 } else {}
             }
             Err(_e) => {
-                editorRefreshScreen()?;
+                editorRefreshScreen(&terminal)?;
             }
         }
     }
