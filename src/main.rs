@@ -4,14 +4,15 @@
 use std::f32::consts::E;
 use std::fs::read;
 use std::io;
-use std::io::{Error, ErrorKind, Read, stdin};
+use std::io::{Error, ErrorKind, Read, stdin, stdout, Write};
 use std::io::ErrorKind::Other;
 use std::os::fd::AsRawFd;
-use crossterm::terminal::enable_raw_mode;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use nix::errno::errno;
 use nix::libc::{EAGAIN, exit, ISTRIP, perror, STDIN_FILENO};
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
+use nix::unistd::acct::disable;
 
 //Macro to add CTRL modifier to each key
 macro_rules! CTRL_KEY {
@@ -49,8 +50,8 @@ impl Terminal {
             | termios::LocalFlags::IEXTEN // disables typing other characters literally (^v)
         );
 
-        raw.control_chars[VMIN as usize] = 0; //return as soon as there is any input to be read
-        raw.control_chars[VTIME as usize] = 1; //maximum time to wait ~ 1/10th of a second (100ms)
+        // raw.control_chars[VMIN as usize] = 0; //return as soon as there is any input to be read
+        // raw.control_chars[VTIME as usize] = 1; //maximum time to wait ~ 1/10th of a second (100ms)
 
         termios::tcsetattr(fd, termios::SetArg::TCSAFLUSH, &raw).unwrap();
         Ok(())
@@ -63,34 +64,91 @@ impl Terminal {
     }
 }
 
+impl Drop for Terminal {
+    fn drop(&mut self) {
+        println!("Program Ending\r\n");
+        Terminal::disableRawMode(self).unwrap();
+    }
+}
+
+// get the pressed keys
+fn editorReadKey() -> io::Result<u8>{
+    let nread;
+    let mut c = [0u8; 1];
+    loop {
+        nread = io::stdin().read(&mut c)?;
+        if nread == 1{
+            print!("{}",c[0] as char);
+            break;
+        } else {
+            return Err(Error::new(Other, "failed at read"))
+        }
+    }
+    Ok(c[0])
+}
+
+// process input
+fn editorProcessKeypress() -> io::Result<bool>{
+    match editorReadKey() {
+        Ok(c) => {
+            if c == CTRL_KEY!('q' as u8){
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        }
+        Err(_e) => {
+            Err(Error::new(Other, "failed at editorReadKey"))
+        }
+    }
+
+}
+
+// write out
+fn editorRefreshScreen() -> io::Result<()> {
+    let _status = stdout().write_all(b"\x1b[2J")?;
+    let _status = stdout().write_all(b"\x1b[H")?;
+    stdout().flush()?;
+
+    editorDrawRows()?;
+    let _status = stdout().write_all(b"\x1b[H")?;
+    Ok(())
+}
+
+// draw rows
+fn editorDrawRows() -> io::Result<()> {
+    let mut i = 0;
+    loop {
+        if i > 23 { break; }
+
+        stdout().write(b"?\r\n")?;
+        stdout().flush()?;
+        i += 1;
+    }
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     let mut terminal = Terminal {
-        orig_termios: termios::tcgetattr(STDIN_FILENO).unwrap(),
+        orig_termios: termios::tcgetattr(STDIN_FILENO)?,
     };
 
     terminal.enableRawMode()?;
 
-    let mut c: char;
-    //loop through all input bytes
-    for byte in stdin().bytes() {
-        let b = byte?;
-        c = b as char;
-        if c as u8 == CTRL_KEY!('q' as u8) {
-            // ctrl q exits the program
-            break;
-        }else if c as i8 == -1 && errno() != EAGAIN {
-            return Err(Error::new(Other, "failed at read"));
-        } else if c.is_ascii_control() {
-            //^ + letter gives the number of that letter
-            println!("{}\r\n", b);
-        } else {
-            //otherwise just display the character then it's ascii value
-            println!("[`{}`]: , {}\r\n", c, b);
+    loop {
+        editorRefreshScreen()?;
+        match editorProcessKeypress() {
+            Ok(exit) => {
+                if exit == true {
+                    let _status = stdout().write_all(b"\x1b[2J")?;
+                    let _status = stdout().write_all(b"\x1b[H")?;
+                    break;
+                } else {}
+            }
+            Err(_e) => {
+                editorRefreshScreen()?;
+            }
         }
     }
-
-    terminal.disableRawMode()?;
-
-    println!("Program Ending");
     Ok(())
 }
