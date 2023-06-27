@@ -1,16 +1,16 @@
 #![allow(non_snake_case)]
 #![allow(unused_imports)]
 
-use std::f32::consts::E;
 use std::ffi::c_int;
 use std::fs::read;
 use std::io;
 use std::io::{Error, ErrorKind, Read, stdin, stdout, Write};
 use std::io::ErrorKind::Other;
+use std::mem::size_of;
 use std::os::fd::AsRawFd;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use nix::errno::errno;
-use nix::libc::{c_ushort, EAGAIN, exit, ioctl, ISTRIP, perror, STDIN_FILENO, TIOCGWINSZ, winsize};
+use nix::libc::{c_ushort, EAGAIN, exit, ioctl, ISTRIP, perror, STDIN_FILENO, STDOUT_FILENO, TIOCGWINSZ, winsize};
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
 use nix::unistd::acct::disable;
@@ -53,8 +53,8 @@ impl Terminal {
             | termios::LocalFlags::IEXTEN // disables typing other characters literally (^v)
         );
 
-        // raw.control_chars[VMIN as usize] = 0; //return as soon as there is any input to be read
-        // raw.control_chars[VTIME as usize] = 1; //maximum time to wait ~ 1/10th of a second (100ms)
+        raw.control_chars[VMIN as usize] = 0; //return as soon as there is any input to be read
+        raw.control_chars[VTIME as usize] = 1; //maximum time to wait ~ 1/10th of a second (100ms)
 
         termios::tcsetattr(fd, termios::SetArg::TCSAFLUSH, &raw).unwrap();
         Ok(())
@@ -66,29 +66,93 @@ impl Terminal {
         Ok(())
     }
 
-    fn getWindowSize(&mut self, rows: &mut c_int, cols: &mut c_int) -> i32 {
+    fn getWindowSize(&mut self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
         let ws: winsize = unsafe { std::mem::zeroed() };
 
         let result = unsafe { ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) };
-        if result == -1 || ws.ws_col == 0 {
-            return -1; //bad ioctl
+        if true || result == -1 || ws.ws_col == 0 { //TODO: remove true from condition
+            match stdout().write_all(b"\x1b[999C\x1b[999B") {
+                Ok(_c) => {}
+                Err(_e) => {
+                    return Err(Error::new(Other, "Error: Failed write at getWindowSize"))
+                }
+            }
+            return self.getCursorPosition(rows, cols);
+            // return Err(Error::new(Other, "bad ioctl at getWindowSize"))//bad ioctl
         } else {
             *rows = ws.ws_row as c_int;
             *cols = ws.ws_col as c_int;
-            0
+            Ok(())
         }
 
+    }
+
+    fn getCursorPosition(&self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
+        let mut buf = ['\0'; 32];
+        match stdout().write_all(b"\x1b[6n") {
+            Ok(_t) => {
+                print!("\r\n");
+
+                let mut i = 0;
+
+                let mut c = [0u8;1];
+                let mut nread;
+                loop {
+                    //loop through buffer
+                    if i > buf.len() {
+                        break;
+                    }
+
+                    //read input buffer
+                    nread = io::stdin().read(&mut c)?;
+                    if nread != 1 {
+                        break;
+                    }
+                    buf[i] = c[0] as char;
+                    if buf[i] as char == 'R' {
+                        break;
+                    }
+                    i += 1;
+                    /*
+                    let b = c[0] as char;
+                    if b.is_ascii_control() {
+                        print!("{}\r\n", c[0]);
+                    } else {
+                        print!("{} ({})\r\n", b, c[0]);
+                    }
+                    */
+                }
+                buf[i] = '\0';
+
+                print!("\r\n buf[1]: {:?}\r\n", &buf[1..=i]); //TODO: extract 2 numbers (rows, cols) from buf
+                match editorReadKey() {
+                    Ok(_t) => {}
+                    Err(e) => {
+                        return Err(Error::new(Other, e))
+                    }
+                }
+            }
+            Err(_e) => {
+                return Err(Error::new(Other, "bad write at getCursorPosition"))
+            }
+        };
+        Ok(())
     }
 
     fn initEditor(&mut self) -> io::Result<()> {
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
-        if self.getWindowSize(&mut rows, &mut cols) == -1 {
-            return Err(Error::new(Other, "fail at getWindowSize"))
+        match self.getWindowSize(&mut rows, &mut cols) {
+            Ok(_c) => {
+                self.screen_rows = rows;
+                self.screen_cols = cols;
+                Ok(())
+            }
+            Err(_e) => {
+                return Err(Error::new(Other, "fail at getWindowSize"))
+            }
         }
-        self.screen_rows = rows;
-        self.screen_cols = cols;
-        Ok(())
+
     }
 }
 
@@ -105,8 +169,8 @@ fn editorReadKey() -> io::Result<u8>{
     let mut c = [0u8; 1];
     loop {
         nread = io::stdin().read(&mut c)?;
-        if nread == 1{
-            print!("{}",c[0] as char);
+        if nread == 1 {
+            print!("{}", c[0] as char);
             break;
         } else {
             return Err(Error::new(Other, "failed at read"))
