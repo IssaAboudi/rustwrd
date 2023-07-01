@@ -7,6 +7,7 @@ use std::io;
 use std::io::{Error, ErrorKind, Read, stdin, stdout, Write};
 use std::io::ErrorKind::Other;
 use std::mem::size_of;
+use std::ops::Add;
 use std::os::fd::AsRawFd;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use nix::errno::errno;
@@ -22,10 +23,18 @@ macro_rules! CTRL_KEY {
     }
 }
 
+//Version of our editor
+
+macro_rules! RUST_WRD {
+    () => {"0.0.1"}
+}
+
 struct Terminal {
     orig_termios: termios::Termios,
     screen_rows: c_int,
     screen_cols: c_int,
+    curs_x: c_int,
+    curs_y: c_int,
 }
 
 impl Terminal {
@@ -161,6 +170,9 @@ impl Terminal {
     }
 
     fn initEditor(&mut self) -> io::Result<()> {
+        self.curs_x = 0;
+        self.curs_y = 0;
+
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
         match self.getWindowSize(&mut rows, &mut cols) {
@@ -222,22 +234,73 @@ fn editorProcessKeypress() -> io::Result<bool>{
 
 // write out
 fn editorRefreshScreen(terminal: &Terminal) -> io::Result<()> {
-    let _status = stdout().write_all(b"\x1b[2J")?;
-    let _status = stdout().write_all(b"\x1b[H")?;
-    stdout().flush()?;
 
-    editorDrawRows(terminal)?;
-    let _status = stdout().write_all(b"\x1b[H")?;
+    let mut appendBuf : Vec<u8> = Vec::new();
+
+    //add escape sequences to buffer and build up a batch of stuff to do
+    // as opposed to small writes
+    appendBuf.extend(b"\x1b[?25l");
+    appendBuf.extend(b"\x1b[H");
+
+    editorDrawRows(terminal, &mut appendBuf)?;
+    let curs_x = terminal.curs_x + 1;
+    let curs_y = terminal.curs_y + 1;
+
+    let buf = "\x1b[".to_string() + &curs_y.to_string() + ";" + &curs_x.to_string() + "H";
+    appendBuf.extend(buf.as_bytes());
+
+    appendBuf.extend(b"\x1b[?25h");
+
+    //write out everything in buffer
+    let _status = stdout().write_all(&appendBuf);
+    stdout().flush()?;
     Ok(())
 }
 
 // draw rows
-fn editorDrawRows(terminal : &Terminal) -> io::Result<()> {
+fn editorDrawRows(terminal : &Terminal, ab : &mut Vec<u8>) -> io::Result<()> {
     let mut i = 0;
     loop {
         if i > terminal.screen_rows { break; }
 
-        stdout().write(b".\r\n")?;
+        //add a new line for every line but the last one
+        if i < terminal.screen_rows + 1  {
+            ab.extend(b"\r\n");
+        }
+
+        // erases current part of the line. by default the line to the right of the cursor
+        ab.extend(b"\x1b[K");
+
+        //add welcome message in the bottom 1/3 of the window
+        if i == (terminal.screen_rows / 3 + 10) {
+            let welcome = "Rust Wrd -- Version ";
+            let author = "by Issa Aboudi 2023";
+
+            //center welcome message
+            let padding = ( terminal.screen_cols - welcome.len() as i32 ) / 2;
+            if padding > 0 {
+                ab.extend(b".");
+                let spaces=" ".repeat(padding as usize);
+                ab.extend(spaces.as_bytes());
+            }
+
+            ab.extend(welcome.as_bytes()); //add welcome text
+            ab.extend(RUST_WRD!().as_bytes()); // add version number macro
+            ab.extend(b"\r\n");
+
+            let padding = (( terminal.screen_cols - author.len() as i32) / 2 ) + 3;
+            if padding > 0 {
+                ab.extend(b".");
+                let spaces = " ".repeat(padding as usize);
+                ab.extend(spaces.as_bytes());
+            }
+            ab.extend(author.as_bytes());
+
+        } else {
+            // write a period on every line
+            ab.extend(b".");
+        }
+
         i += 1;
     }
     stdout().flush()?;
@@ -249,11 +312,12 @@ fn main() -> io::Result<()> {
         orig_termios: termios::tcgetattr(STDIN_FILENO)?,
         screen_rows: 0,
         screen_cols: 0,
+        curs_x: 10,
+        curs_y: 50,
     };
 
     terminal.enableRawMode()?;
     terminal.initEditor()?;
-
 
     loop {
         editorRefreshScreen(&terminal)?;
