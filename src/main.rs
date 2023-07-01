@@ -70,7 +70,8 @@ impl Terminal {
         let ws: winsize = unsafe { std::mem::zeroed() };
 
         let result = unsafe { ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) };
-        if true || result == -1 || ws.ws_col == 0 { //TODO: remove true from condition
+        if result == -1 || ws.ws_col == 0 {
+            // we tell terminal to move to bottom right edge with large values
             match stdout().write_all(b"\x1b[999C\x1b[999B") {
                 Ok(_c) => {}
                 Err(_e) => {
@@ -78,7 +79,6 @@ impl Terminal {
                 }
             }
             return self.getCursorPosition(rows, cols);
-            // return Err(Error::new(Other, "bad ioctl at getWindowSize"))//bad ioctl
         } else {
             *rows = ws.ws_row as c_int;
             *cols = ws.ws_col as c_int;
@@ -89,6 +89,7 @@ impl Terminal {
 
     fn getCursorPosition(&self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
         let mut buf = ['\0'; 32];
+
         match stdout().write_all(b"\x1b[6n") {
             Ok(_t) => {
                 print!("\r\n");
@@ -113,18 +114,38 @@ impl Terminal {
                         break;
                     }
                     i += 1;
-                    /*
-                    let b = c[0] as char;
-                    if b.is_ascii_control() {
-                        print!("{}\r\n", c[0]);
-                    } else {
-                        print!("{} ({})\r\n", b, c[0]);
-                    }
-                    */
                 }
-                buf[i] = '\0';
 
-                print!("\r\n buf[1]: {:?}\r\n", &buf[1..=i]); //TODO: extract 2 numbers (rows, cols) from buf
+                //If invalid, error out
+                if buf[0] != '\x1b' || buf[1] != '[' {
+                    return Err(Error::new(Other, "Invalid escape sequence at getCursorPosition"));
+                }
+
+                //parse the buffer ignoring the first byte: \x1b
+                let input : String = buf[2..].iter().collect();
+                let parts: Vec<&str> = input.split(";").collect();
+                if parts.len() == 2 {
+                    let parsed_rows = match parts[0].trim().parse::<c_int>() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            return Err(Error::new(Other, "Invalid parsing: parsed_rows in getCursorPosition"));
+                        }
+                    };
+                    let parsed_cols = match parts[0].trim().parse::<c_int>() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            return Err(Error::new(Other, "Invalid parsing: parsed_cols in getCursorPosition"));
+                        }
+                    };
+
+                    *rows = parsed_rows;
+                    *cols = parsed_cols;
+
+                } else {
+                    return Err(Error::new(Other, "Invalid parsing of parts in getCursorPosition"))
+                }
+
+
                 match editorReadKey() {
                     Ok(_t) => {}
                     Err(e) => {
@@ -148,8 +169,8 @@ impl Terminal {
                 self.screen_cols = cols;
                 Ok(())
             }
-            Err(_e) => {
-                return Err(Error::new(Other, "fail at getWindowSize"))
+            Err(e) => {
+                return Err(Error::new(Other, e))
             }
         }
 
@@ -165,16 +186,19 @@ impl Drop for Terminal {
 
 // get the pressed keys
 fn editorReadKey() -> io::Result<u8>{
-    let nread;
     let mut c = [0u8; 1];
     loop {
-        nread = io::stdin().read(&mut c)?;
-        if nread == 1 {
-            print!("{}", c[0] as char);
-            break;
-        } else {
-            return Err(Error::new(Other, "failed at read"))
-        }
+        match stdin().read(&mut c) {
+            Ok(t) => {
+                if t == 1 {
+                    print!("{}", c[0] as char);
+                    break;
+                }
+            }
+            Err(e) => {
+                return Err(Error::new(Other, e))
+            }
+        };
     }
     Ok(c[0])
 }
