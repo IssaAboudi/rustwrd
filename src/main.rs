@@ -12,9 +12,7 @@ mod terminal;
 use terminal::Terminal;
 
 // use nix::errno::errno;
-use nix::libc::{
-    c_ushort, exit, ioctl, perror, winsize, EAGAIN, ISTRIP, STDIN_FILENO, STDOUT_FILENO, TIOCGWINSZ,
-};
+use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
 use std::io;
 use std::io::{stdin, stdout, Write};

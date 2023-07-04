@@ -42,6 +42,21 @@ macro_rules! PAGE_DOWN {
         1005
     };
 }
+macro_rules! HOME_KEY {
+    () => {
+        1006
+    };
+}
+macro_rules! END_KEY {
+    () => {
+        1007
+    };
+}
+macro_rules! DEL_KEY {
+    () => {
+        1008
+    };
+}
 
 // process input
 pub(crate) fn editorReadKey() -> io::Result<i32> {
@@ -70,11 +85,15 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
         // then it's an escape sequence
         if seq[0] == '[' as u8 {
             if seq[1] >= b'0' && seq[1] <= b'9' {
-                //translate page up and page down
                 if seq[2] == b'~' {
                     return match seq[1] {
+                        b'1' => Ok(HOME_KEY!()),
+                        b'3' => Ok(DEL_KEY!()),
+                        b'4' => Ok(END_KEY!()),
                         b'5' => Ok(PAGE_UP!()),
                         b'6' => Ok(PAGE_DOWN!()),
+                        b'7' => Ok(HOME_KEY!()),
+                        b'8' => Ok(END_KEY!()),
                         _ => Ok(b'\x1b' as i32),
                     };
                 }
@@ -85,9 +104,17 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
                     b'B' => Ok(ARROW_DOWN!()),
                     b'C' => Ok(ARROW_RIGHT!()),
                     b'D' => Ok(ARROW_LEFT!()),
+                    b'H' => Ok(HOME_KEY!()),
+                    b'F' => Ok(END_KEY!()),
                     _ => Ok(b'\x1b' as i32),
                 };
             }
+        } else if seq[0] == b'O' {
+            return match seq[1] {
+                b'H' => Ok(HOME_KEY!()),
+                b'F' => Ok(END_KEY!()),
+                _ => Ok(b'\x1b' as i32),
+            };
         }
 
         Ok(b'\x1b' as i32)
@@ -98,17 +125,24 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
 
 pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
     match editorReadKey() {
-        Ok(c) => {
-            if c == CTRL_KEY!('q' as u8) as i32 {
+        Ok(keyPressed) => {
+            if keyPressed == CTRL_KEY!('q' as u8) as i32 {
                 Ok(true)
             } else {
-                //trigger page up and page down
-                if c == PAGE_UP!() || c == PAGE_DOWN!() {
+                if keyPressed == HOME_KEY!() {
+                    terminal.curs_x = 0;
+                }
+
+                if keyPressed == END_KEY!() {
+                    terminal.curs_x = terminal.screen_cols - 1;
+                }
+
+                if keyPressed == PAGE_UP!() || keyPressed == PAGE_DOWN!() {
                     let mut times = terminal.screen_rows;
                     while times > 0 {
                         match editorMoveCursor(
                             terminal,
-                            if c == PAGE_UP!() {
+                            if keyPressed == PAGE_UP!() {
                                 ARROW_UP!()
                             } else {
                                 ARROW_DOWN!()
@@ -123,12 +157,12 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
                 }
 
                 //trigger cursor movement
-                if c == ARROW_UP!()
-                    || c == ARROW_DOWN!()
-                    || c == ARROW_LEFT!()
-                    || c == ARROW_RIGHT!()
+                if keyPressed == ARROW_UP!()
+                    || keyPressed == ARROW_DOWN!()
+                    || keyPressed == ARROW_LEFT!()
+                    || keyPressed == ARROW_RIGHT!()
                 {
-                    return match editorMoveCursor(terminal, c) {
+                    return match editorMoveCursor(terminal, keyPressed) {
                         Ok(_t) => Ok(false),
                         Err(e) => Err(Error::new(Other, e)),
                     };
