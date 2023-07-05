@@ -9,18 +9,19 @@ use crate::output::editorRefreshScreen;
 
 mod terminal;
 
-use terminal::erow;
 use terminal::Terminal;
 
-// use nix::errno::errno;
 use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
-use std::io;
+use std::fs::File;
+use std::io::ErrorKind::Other;
 use std::io::{stdin, stdout, Write};
-use std::str::Chars;
+use std::{env, io};
 
 // entry point
 fn main() -> io::Result<()> {
+    let args: Vec<_> = env::args().collect();
+
     let mut terminal = Terminal {
         orig_termios: termios::tcgetattr(STDIN_FILENO)?,
         screen_rows: 0,
@@ -28,19 +29,19 @@ fn main() -> io::Result<()> {
         curs_x: 0,
         curs_y: 0,
         num_rows: 0,
-        row: {
-            erow {
-                chars: String::new(),
-            }
-        },
+        v_offset: 0,
+        h_offset: 0,
+        content: Vec::new(),
     };
 
     terminal.enableRawMode()?;
     terminal.initEditor()?;
-    terminal.editorOpen();
+    if args.len() >= 2 {
+        terminal.editorOpenFile(&args[1])?;
+    }
 
     loop {
-        editorRefreshScreen(&terminal)?;
+        editorRefreshScreen(&mut terminal)?;
         match editorProcessKeypress(&mut terminal) {
             Ok(exit) => {
                 if exit == true {
@@ -51,7 +52,7 @@ fn main() -> io::Result<()> {
                 }
             }
             Err(_e) => {
-                editorRefreshScreen(&terminal)?;
+                editorRefreshScreen(&mut terminal)?;
             }
         }
     }

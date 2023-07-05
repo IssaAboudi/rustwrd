@@ -8,14 +8,14 @@ use nix::libc::{
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
 use std::ffi::c_int;
+use std::fs;
 use std::io;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, Error, ErrorKind, Read, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 
-pub(crate) struct erow {
-    pub(crate) chars: String,
-}
+use nix::sys::socket::AddressFamily::Packet;
+use std::fs::{read, File};
 
 pub(crate) struct Terminal {
     pub(crate) orig_termios: termios::Termios,
@@ -23,8 +23,10 @@ pub(crate) struct Terminal {
     pub(crate) screen_cols: c_int,
     pub(crate) curs_x: c_int,
     pub(crate) curs_y: c_int,
-    pub(crate) row: erow,
+    pub(crate) content: Vec<String>,
     pub(crate) num_rows: i32,
+    pub(crate) v_offset: i32,
+    pub(crate) h_offset: i32,
 }
 
 impl Terminal {
@@ -169,6 +171,7 @@ impl Terminal {
         self.curs_x = 0;
         self.curs_y = 0;
         self.num_rows = 0;
+        self.v_offset = 0;
 
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
@@ -182,13 +185,19 @@ impl Terminal {
         }
     }
 
-    //file i/o
-    pub(crate) fn editorOpen(&mut self) {
-        let line = String::from("Hello, World");
-        self.row.chars = (line + "\0").to_owned();
-        //append a \0 to mark the end of the string
-        //we want to_owned because we want the struct to have ownership
-        self.num_rows = 1;
+    // read from file
+    pub(crate) fn editorOpenFile(&mut self, fp: &str) -> io::Result<()> {
+        match File::open(fp) {
+            Ok(file) => {
+                let bufreader = BufReader::new(file);
+                for line in bufreader.lines() {
+                    self.content.push(line.unwrap().trim().to_owned());
+                    self.num_rows += 1;
+                }
+            }
+            Err(e) => return Err(Error::new(Other, e)),
+        }
+        Ok(())
     }
 }
 

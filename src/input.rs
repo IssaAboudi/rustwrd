@@ -127,13 +127,14 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
     match editorReadKey() {
         Ok(keyPressed) => {
             if keyPressed == CTRL_KEY!('q' as u8) as i32 {
-                Ok(true)
+                Ok(true) //exit the program
             } else {
                 if keyPressed == HOME_KEY!() {
                     terminal.curs_x = 0;
                 }
 
                 if keyPressed == END_KEY!() {
+                    //TODO: jump to end of the current line.
                     terminal.curs_x = terminal.screen_cols - 1;
                 }
 
@@ -193,7 +194,7 @@ pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<
             }
         }
         ARROW_DOWN!() => {
-            if terminal.curs_y < terminal.screen_rows - 1 {
+            if terminal.curs_y < terminal.num_rows - 1 {
                 terminal.curs_y += 1
             }
         }
