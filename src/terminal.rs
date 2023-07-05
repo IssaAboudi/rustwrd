@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use crate::input::editorReadKey;
 
 use nix::libc::{
@@ -11,12 +13,18 @@ use std::io::ErrorKind::Other;
 use std::io::{stdin, stdout, Error, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 
+pub(crate) struct erow {
+    pub(crate) chars: String,
+}
+
 pub(crate) struct Terminal {
     pub(crate) orig_termios: termios::Termios,
     pub(crate) screen_rows: c_int,
     pub(crate) screen_cols: c_int,
     pub(crate) curs_x: c_int,
     pub(crate) curs_y: c_int,
+    pub(crate) row: erow,
+    pub(crate) num_rows: i32,
 }
 
 impl Terminal {
@@ -160,6 +168,7 @@ impl Terminal {
     pub(crate) fn initEditor(&mut self) -> io::Result<()> {
         self.curs_x = 0;
         self.curs_y = 0;
+        self.num_rows = 0;
 
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
@@ -171,6 +180,15 @@ impl Terminal {
             }
             Err(e) => return Err(Error::new(Other, e)),
         }
+    }
+
+    //file i/o
+    pub(crate) fn editorOpen(&mut self) {
+        let line = String::from("Hello, World");
+        self.row.chars = (line + "\0").to_owned();
+        //append a \0 to mark the end of the string
+        //we want to_owned because we want the struct to have ownership
+        self.num_rows = 1;
     }
 }
 

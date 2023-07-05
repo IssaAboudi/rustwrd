@@ -57,33 +57,38 @@ pub(crate) fn editorDrawRows(terminal: &Terminal, ab: &mut Vec<u8>) -> io::Resul
         // erases current part of the line. by default the line to the right of the cursor
         ab.extend(b"\x1b[K");
 
-        //add welcome message in the bottom 1/3 of the window
-        if i == (terminal.screen_rows / 3 + 10) {
-            let welcome = "Rust Wrd -- Version ";
-            let author = "by Issa Aboudi 2023";
+        if i >= terminal.num_rows {
+            //add welcome message in the bottom 1/3 of the window
+            if i == (terminal.screen_rows / 3 + 10) {
+                let welcome = "Rust Wrd -- Version ";
+                let author = "by Issa Aboudi 2023";
 
-            //center welcome message
-            let padding = (terminal.screen_cols - welcome.len() as i32) / 2;
-            if padding > 0 {
+                //center welcome message
+                let padding = (terminal.screen_cols - welcome.len() as i32) / 2;
+                if padding > 0 {
+                    ab.extend(PRFX!());
+                    let spaces = " ".repeat(padding as usize);
+                    ab.extend(spaces.as_bytes());
+                }
+                //Write welcome text and version number
+                ab.extend(welcome.as_bytes());
+                ab.extend(RUST_WRD!().as_bytes());
+                ab.extend(b"\r\n");
+
+                //do it again for author
+                let padding = ((terminal.screen_cols - author.len() as i32) / 2) + 3;
+                if padding > 0 {
+                    ab.extend(PRFX!());
+                    let spaces = " ".repeat(padding as usize);
+                    ab.extend(spaces.as_bytes());
+                }
+                ab.extend(author.as_bytes());
+            } else {
+                // write a period on every line
                 ab.extend(PRFX!());
-                let spaces = " ".repeat(padding as usize);
-                ab.extend(spaces.as_bytes());
             }
-
-            ab.extend(welcome.as_bytes()); //add welcome text
-            ab.extend(RUST_WRD!().as_bytes()); // add version number macro
-            ab.extend(b"\r\n");
-
-            let padding = ((terminal.screen_cols - author.len() as i32) / 2) + 3;
-            if padding > 0 {
-                ab.extend(PRFX!());
-                let spaces = " ".repeat(padding as usize);
-                ab.extend(spaces.as_bytes());
-            }
-            ab.extend(author.as_bytes());
         } else {
-            // write a period on every line
-            ab.extend(PRFX!());
+            ab.extend(terminal.row.chars.as_bytes());
         }
 
         i += 1;

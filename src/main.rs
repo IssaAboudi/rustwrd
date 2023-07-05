@@ -9,6 +9,7 @@ use crate::output::editorRefreshScreen;
 
 mod terminal;
 
+use terminal::erow;
 use terminal::Terminal;
 
 // use nix::errno::errno;
@@ -16,6 +17,7 @@ use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
 use std::io;
 use std::io::{stdin, stdout, Write};
+use std::str::Chars;
 
 // entry point
 fn main() -> io::Result<()> {
@@ -25,10 +27,17 @@ fn main() -> io::Result<()> {
         screen_cols: 0,
         curs_x: 0,
         curs_y: 0,
+        num_rows: 0,
+        row: {
+            erow {
+                chars: String::new(),
+            }
+        },
     };
 
     terminal.enableRawMode()?;
     terminal.initEditor()?;
+    terminal.editorOpen();
 
     loop {
         editorRefreshScreen(&terminal)?;
