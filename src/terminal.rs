@@ -18,13 +18,15 @@ use nix::sys::socket::AddressFamily::Packet;
 use std::fs::{read, File};
 
 pub(crate) struct Terminal {
+    /*==============Terminal Stuff=================*/
     pub(crate) orig_termios: termios::Termios,
-    pub(crate) screen_rows: c_int,
-    pub(crate) screen_cols: c_int,
-    pub(crate) curs_x: c_int,
-    pub(crate) curs_y: c_int,
-    pub(crate) content: Vec<String>,
-    pub(crate) num_rows: i32,
+    pub(crate) screen_rows: c_int, //number of rows in terminal window
+    pub(crate) screen_cols: c_int, //number of columms in terminal window
+    pub(crate) curs_x: c_int,      //horizontal position of the cursor
+    pub(crate) curs_y: c_int,      //vertical position of the cursor
+    /*==============Text processing===============*/
+    pub(crate) content: Vec<String>, //the text content we are working on
+    pub(crate) num_rows: i32,        // number of rows we're reading from file
     pub(crate) v_offset: i32,
     pub(crate) h_offset: i32,
 }

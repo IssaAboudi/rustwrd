@@ -176,28 +176,70 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
 }
 
 pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<()> {
+    let invalidString = String::from("");
+    let mut curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+
     //movement with bounds checking
+    //left is 0
+    //top is 0
     match key {
         ARROW_LEFT!() => {
-            if terminal.curs_x > 0 {
-                terminal.curs_x -= 1
+            if terminal.curs_x > 0 { //bounds checking
+                terminal.curs_x -= 1 // - means move left
+            }
+            //handle pressing left at start of line
+            if terminal.curs_x == 0
+                && terminal.curs_y > 0 {
+                //move cursor up 1 row
+                terminal.curs_y -= 1;
+                //recalculate the current row's length
+                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                //bring us to last character in previous row
+                terminal.curs_x = curr_row.len() as i32;
             }
         }
         ARROW_RIGHT!() => {
-            if terminal.curs_x < terminal.screen_cols - 1 {
-                terminal.curs_x += 1
+            if terminal.curs_x < curr_row.len() as i32 { //bounds checking
+                terminal.curs_x += 1 // + means move right
+            }
+            //handle pressing right at end of line
+            if terminal.curs_x == curr_row.len() as i32
+                && terminal.curs_y < terminal.num_rows - 1 {
+                //move cursor down 1 row
+                terminal.curs_y += 1;
+                //recalculate the current row's length
+                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                //bring us to first character in next row
+                terminal.curs_x = 0;
             }
         }
         ARROW_UP!() => {
-            if terminal.curs_y > 0 {
-                terminal.curs_y -= 1
+            if terminal.curs_y > 0 { // bounds checking
+                terminal.curs_y -= 1; // - means move up
+
+                //recalculate the current row's length
+                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                if terminal.curs_x >= curr_row.len() as i32 {
+                    //if we exceed the boundary for our new row,
+                    // snap back to last character in the row
+                    terminal.curs_x = curr_row.len() as i32;
+                }
             }
         }
         ARROW_DOWN!() => {
-            if terminal.curs_y < terminal.num_rows - 1 {
-                terminal.curs_y += 1
+            if terminal.curs_y < terminal.num_rows - 1 { //bounds checking
+                terminal.curs_y += 1; // + means move down
+
+                //recalculate the current row's length
+                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                if terminal.curs_x >= curr_row.len() as i32 {
+                    //if we exceed the boundary for our new row,
+                    // snap back to last character in the row
+                    terminal.curs_x = curr_row.len() as i32;
+                }
             }
         }
+
         //to catch any keys that slip past
         _ => return Err(Error::new(Other, "Invalid key in editorMoveCursor")),
     }
