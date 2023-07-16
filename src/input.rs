@@ -1,6 +1,6 @@
 use std::io;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, Error, ErrorKind, Read};
+use std::io::{stdin, stdout, Error, ErrorKind, Read, Write};
 
 use crate::Terminal;
 
@@ -57,6 +57,61 @@ macro_rules! DEL_KEY {
         1008
     };
 }
+macro_rules! ENTER_KEY {
+    () => {'\r' as i32 };
+}
+
+pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
+    let mut input_buf = String::new();
+    let size = terminal.content.len();
+    match editorReadKey() {
+        Ok(keyPressed) => {
+            if keyPressed == CTRL_KEY!('q' as u8) as i32 {
+                Ok(true) //exit the program
+            } else {
+                if keyPressed == HOME_KEY!() {
+                    terminal.curs_x = 0;
+                }
+
+                if keyPressed == END_KEY!() {
+                    let invalidString = String::from("");
+                    let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                    terminal.curs_x = curr_row.len() as i32;
+                }
+
+                if keyPressed == PAGE_UP!() || keyPressed == PAGE_DOWN!() {
+                    let mut times = terminal.screen_rows;
+                    while times > 0 {
+                        match editorMoveCursor(terminal, if keyPressed == PAGE_UP!() { ARROW_UP!() } else { ARROW_DOWN!() } ) {
+                            Ok(_t) => { times -= 1; }
+                            Err(e) => return Err(Error::new(Other, e)),
+                        };
+                    }
+                }
+
+                if keyPressed == ENTER_KEY!() {
+                    // terminal.content.push(input_buf.clone());
+                    // input_buf.clear();
+                }
+
+                //trigger cursor movement
+                if keyPressed == ARROW_UP!()
+                    || keyPressed == ARROW_DOWN!()
+                    || keyPressed == ARROW_LEFT!()
+                    || keyPressed == ARROW_RIGHT!() {
+
+                    return match editorMoveCursor(terminal, keyPressed) {
+                        Ok(_t) => Ok(false),
+                        Err(e) => Err(Error::new(Other, e)),
+                    };
+                };
+                // terminal.content[size-1] = input_buf;
+                Ok(false)
+            }
+        }
+        Err(_e) => Err(Error::new(Other, "failed at editorReadKey")),
+    }
+}
 
 // process input
 pub(crate) fn editorReadKey() -> io::Result<i32> {
@@ -67,7 +122,7 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
             Ok(t) => {
                 if t == 1 {
                     //print the byte we read in
-                    print!("{}", c[0] as char);
+                    buf.push(c[0] as char);
                     break;
                 }
             }
@@ -79,7 +134,7 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
     if c[0] == b'\x1b' {
         let mut seq = [0u8; 3];
         //read the next bytes
-        stdin().read(&mut seq)?;
+        let _ = stdin().read(&mut seq)?;
 
         //if escape follows with a [
         // then it's an escape sequence
@@ -123,58 +178,6 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
     }
 }
 
-pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
-    match editorReadKey() {
-        Ok(keyPressed) => {
-            if keyPressed == CTRL_KEY!('q' as u8) as i32 {
-                Ok(true) //exit the program
-            } else {
-                if keyPressed == HOME_KEY!() {
-                    terminal.curs_x = 0;
-                }
-
-                if keyPressed == END_KEY!() {
-                    //TODO: jump to end of the current line.
-                    terminal.curs_x = terminal.screen_cols - 1;
-                }
-
-                if keyPressed == PAGE_UP!() || keyPressed == PAGE_DOWN!() {
-                    let mut times = terminal.screen_rows;
-                    while times > 0 {
-                        match editorMoveCursor(
-                            terminal,
-                            if keyPressed == PAGE_UP!() {
-                                ARROW_UP!()
-                            } else {
-                                ARROW_DOWN!()
-                            },
-                        ) {
-                            Ok(_t) => {
-                                times -= 1;
-                            }
-                            Err(e) => return Err(Error::new(Other, e)),
-                        };
-                    }
-                }
-
-                //trigger cursor movement
-                if keyPressed == ARROW_UP!()
-                    || keyPressed == ARROW_DOWN!()
-                    || keyPressed == ARROW_LEFT!()
-                    || keyPressed == ARROW_RIGHT!()
-                {
-                    return match editorMoveCursor(terminal, keyPressed) {
-                        Ok(_t) => Ok(false),
-                        Err(e) => Err(Error::new(Other, e)),
-                    };
-                };
-                Ok(false)
-            }
-        }
-        Err(_e) => Err(Error::new(Other, "failed at editorReadKey")),
-    }
-}
-
 pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<()> {
     let invalidString = String::from("");
     let mut curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
@@ -204,7 +207,7 @@ pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<
             }
             //handle pressing right at end of line
             if terminal.curs_x == curr_row.len() as i32
-                && terminal.curs_y < terminal.num_rows - 1 {
+                && terminal.curs_y < terminal.content.len() as i32 - 1 {
                 //move cursor down 1 row
                 terminal.curs_y += 1;
                 //recalculate the current row's length
@@ -227,7 +230,7 @@ pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<
             }
         }
         ARROW_DOWN!() => {
-            if terminal.curs_y < terminal.num_rows - 1 { //bounds checking
+            if terminal.curs_y < terminal.content.len() as i32 - 1 { //bounds checking
                 terminal.curs_y += 1; // + means move down
 
                 //recalculate the current row's length

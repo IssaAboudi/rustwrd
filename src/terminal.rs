@@ -26,8 +26,7 @@ pub(crate) struct Terminal {
     pub(crate) curs_y: c_int,      //vertical position of the cursor
     /*==============Text processing===============*/
     pub(crate) content: Vec<String>, //the text content we are working on
-    pub(crate) num_rows: i32,        // number of rows we're reading from file
-    pub(crate) v_offset: i32,
+    pub(crate) v_offset: i32, // vertical scrolling padding
     pub(crate) h_offset: i32,
 }
 
@@ -79,10 +78,9 @@ impl Terminal {
         if result == -1 || ws.ws_col == 0 {
             // we tell terminal to move to bottom right edge with large values
             match stdout().write_all(b"\x1b[999C\x1b[999B") {
-                Ok(_c) => {}
-                Err(_e) => return Err(Error::new(Other, "Error: Failed write at getWindowSize")),
+                Ok(_c) => self.getCursorPosition(rows, cols),
+                Err(_e) => Err(Error::new(Other, "Error: Failed write at getWindowSize")),
             }
-            return self.getCursorPosition(rows, cols);
         } else {
             *rows = ws.ws_row as c_int;
             *cols = ws.ws_col as c_int;
@@ -159,10 +157,10 @@ impl Terminal {
                     ));
                 }
 
-                match editorReadKey() {
-                    Ok(_t) => {}
-                    Err(e) => return Err(Error::new(Other, e)),
-                }
+                // match editorReadKey() {
+                //     Ok(_t) => {}
+                //     Err(e) => return Err(Error::new(Other, e)),
+                // }
             }
             Err(_e) => return Err(Error::new(Other, "bad write at getCursorPosition")),
         };
@@ -172,8 +170,8 @@ impl Terminal {
     pub(crate) fn initEditor(&mut self) -> io::Result<()> {
         self.curs_x = 0;
         self.curs_y = 0;
-        self.num_rows = 0;
         self.v_offset = 0;
+        self.content.push(String::from(" "));
 
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
@@ -181,6 +179,7 @@ impl Terminal {
             Ok(_c) => {
                 self.screen_rows = rows;
                 self.screen_cols = cols;
+                self.screen_rows -= 1; //for our status bar
                 Ok(())
             }
             Err(e) => return Err(Error::new(Other, e)),
@@ -193,8 +192,8 @@ impl Terminal {
             Ok(file) => {
                 let bufreader = BufReader::new(file);
                 for line in bufreader.lines() {
-                    self.content.push(line.unwrap().trim().to_owned());
-                    self.num_rows += 1;
+                    let text = line.unwrap().replace('\t', "    ").to_owned();
+                    self.content.push(text);
                 }
             }
             Err(e) => return Err(Error::new(Other, e)),

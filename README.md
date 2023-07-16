@@ -21,3 +21,11 @@ cargo run
 
 Make sure you run this in a terminal not in an IDE - or else you'll
 get an error that says "Inappropriate ioctl for device".
+
+## Opening a file:
+
+Supply a file path as the only argument to this program like:
+
+```shell
+cargo run test.txt
+```

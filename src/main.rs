@@ -15,7 +15,7 @@ use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
 use std::fs::File;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, Write};
+use std::io::{BufRead, stdin, stdout, Write};
 use std::{env, io};
 
 // entry point
@@ -28,10 +28,9 @@ fn main() -> io::Result<()> {
         screen_cols: 0,
         curs_x: 0,
         curs_y: 0,
-        num_rows: 0,
         v_offset: 0,
         h_offset: 0,
-        content: Vec::new(),
+         content: Vec::new(),
     };
 
     terminal.enableRawMode()?;

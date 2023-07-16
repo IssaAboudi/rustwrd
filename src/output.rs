@@ -81,7 +81,7 @@ fn displayCredits(terminal: &Terminal, ab: &mut Vec<u8>) {
 pub(crate) fn editorDrawRows(terminal: &Terminal, ab: &mut Vec<u8>) -> io::Result<()> {
     let mut i = 0;
     loop {
-        if i > terminal.screen_rows - 1 {
+        if i > terminal.screen_rows {
             break;
         }
 
@@ -89,18 +89,18 @@ pub(crate) fn editorDrawRows(terminal: &Terminal, ab: &mut Vec<u8>) -> io::Resul
         ab.extend(b"\x1b[K");
 
         //add a new line for every line but the last one
-        if i < terminal.screen_rows + 1 {
-            ab.extend(b"\r\n");
-        }
+        // if i < terminal.screen_rows + 1 {
+        // }
+        ab.extend(b"\r\n");
 
         // erase content on last line
         ab.extend(b"\x1b[K");
 
         let file_row = i + terminal.v_offset;
 
-        if file_row >= terminal.num_rows {
+        if file_row >= terminal.content.len() as i32 {
             //add welcome message in the bottom 1/3 of the window
-            if i == (terminal.screen_rows / 3 + 10) {
+            if i == (terminal.screen_rows / 3 + 10) && terminal.content.is_empty() {
                 if terminal.content.is_empty() {
                     displayCredits(terminal, ab);
                 } else {
