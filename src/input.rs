@@ -68,7 +68,6 @@ macro_rules! BACKSPACE_KEY {
 
 pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
     let mut input_buf = String::new();
-    let size = terminal.content.len();
     match editorReadKey(&mut input_buf) {
         Ok(keyPressed) => {
             if keyPressed == CTRL_KEY!(b'q') as i32 {
@@ -77,6 +76,10 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
                 //clear line
                 terminal.content[terminal.curs_y as usize] = String::new();
                 terminal.curs_x = 0;
+                Ok(false)
+            } else if keyPressed == CTRL_KEY!(b's') as i32 {
+                let fp = terminal.fp.clone();
+                terminal.editorWriteFile(fp)?;
                 Ok(false)
             }
             else {
