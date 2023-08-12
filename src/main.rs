@@ -15,8 +15,29 @@ use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
 use std::fs::File;
 use std::io::ErrorKind::Other;
-use std::io::{BufRead, stdin, stdout, Write};
+use std::io::{BufRead, Read, stdin, stdout, Write};
 use std::{env, io};
+
+
+fn keycodes() -> io::Result<()> {
+    let mut c: char;
+    //loop through all input bytes
+    for byte in stdin().bytes() {
+        let b = byte?;
+        c = b as char;
+        if c == 'q' {
+            //q exits the program
+            break;
+        } else if c.is_ascii_control() {
+            //^ + letter gives the number of that letter
+            println!("{}\r\n", b);
+        } else {
+            //otherwise just display the character then it's ascii value
+            println!("[`{}`]: , {}\r\n", c, b);
+        }
+    }
+    Ok(())
+}
 
 // entry point
 fn main() -> io::Result<()> {
@@ -39,6 +60,8 @@ fn main() -> io::Result<()> {
         terminal.editorOpenFile(&args[1])?;
     }
 
+    // keycodes();
+
     loop {
         editorRefreshScreen(&mut terminal)?;
         match editorProcessKeypress(&mut terminal) {
@@ -55,5 +78,6 @@ fn main() -> io::Result<()> {
             }
         }
     }
+
     Ok(())
 }

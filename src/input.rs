@@ -58,54 +58,100 @@ macro_rules! DEL_KEY {
     };
 }
 macro_rules! ENTER_KEY {
-    () => {'\r' as i32 };
+    () => {1009};
+}
+macro_rules! BACKSPACE_KEY {
+    () => {
+        1010
+    };
 }
 
 pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
     let mut input_buf = String::new();
     let size = terminal.content.len();
-    match editorReadKey() {
+    match editorReadKey(&mut input_buf) {
         Ok(keyPressed) => {
             if keyPressed == CTRL_KEY!('q' as u8) as i32 {
                 Ok(true) //exit the program
             } else {
-                if keyPressed == HOME_KEY!() {
-                    terminal.curs_x = 0;
-                }
 
-                if keyPressed == END_KEY!() {
-                    let invalidString = String::from("");
-                    let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
-                    terminal.curs_x = curr_row.len() as i32;
-                }
+                match keyPressed {
+                    HOME_KEY!() => {
+                        terminal.curs_x = 0;
+                    }
+                    END_KEY!() => {
+                        let invalidString = String::from("");
+                        let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                        terminal.curs_x = curr_row.len() as i32;
+                    }
+                    PAGE_UP!() => {
+                        let mut times = terminal.screen_rows;
+                        while times > 0 {
+                            match editorMoveCursor(terminal,  ARROW_UP!() ) {
+                                Ok(_t) => { times -= 1; }
+                                Err(e) => return Err(Error::new(Other, e)),
+                            };
+                        }
+                    }
+                    PAGE_DOWN!() => {
+                        let mut times = terminal.screen_rows;
+                        while times > 0 {
+                            match editorMoveCursor(terminal, ARROW_DOWN!() ) {
+                                Ok(_t) => { times -= 1; }
+                                Err(e) => return Err(Error::new(Other, e)),
+                            };
+                        }
+                    }
+                    ENTER_KEY!() => {
+                        terminal.content.push(String::new());
+                        terminal.curs_y += 1;
 
-                if keyPressed == PAGE_UP!() || keyPressed == PAGE_DOWN!() {
-                    let mut times = terminal.screen_rows;
-                    while times > 0 {
-                        match editorMoveCursor(terminal, if keyPressed == PAGE_UP!() { ARROW_UP!() } else { ARROW_DOWN!() } ) {
-                            Ok(_t) => { times -= 1; }
-                            Err(e) => return Err(Error::new(Other, e)),
+                        let invalidString = String::from("");
+                        let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+
+                        if terminal.curs_x >= curr_row.len() as i32 {
+                            //if we exceed the boundary for our new row,
+                            // snap back to last character in the row
+                            terminal.curs_x = curr_row.len() as i32;
+                        }
+
+                    }
+                    //trigger cursor movement
+                    ARROW_UP!() => {
+                        return match editorMoveCursor(terminal, keyPressed) {
+                            Ok(_t) => Ok(false),
+                            Err(e) => Err(Error::new(Other, e)),
                         };
                     }
+                    ARROW_DOWN!() => {
+                        return match editorMoveCursor(terminal, keyPressed) {
+                            Ok(_t) => Ok(false),
+                            Err(e) => Err(Error::new(Other, e)),
+                        };
+                    }
+                    ARROW_LEFT!() => {
+                        return match editorMoveCursor(terminal, keyPressed) {
+                            Ok(_t) => Ok(false),
+                            Err(e) => Err(Error::new(Other, e)),
+                        };
+                    }
+                    ARROW_RIGHT!() => {
+                        return match editorMoveCursor(terminal, keyPressed) {
+                            Ok(_t) => Ok(false),
+                            Err(e) => Err(Error::new(Other, e)),
+                        };
+                    }
+                    BACKSPACE_KEY!() => {
+                        if terminal.curs_x > 0 { // constrain backspace
+                            terminal.content[terminal.curs_y as usize].remove(terminal.curs_x  as usize -1);
+                            terminal.curs_x -= 1;
+                        }
+                    }
+                    _ => {
+                        terminal.content[terminal.curs_y as usize].insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
+                        terminal.curs_x += 1;
+                    }
                 }
-
-                if keyPressed == ENTER_KEY!() {
-                    // terminal.content.push(input_buf.clone());
-                    // input_buf.clear();
-                }
-
-                //trigger cursor movement
-                if keyPressed == ARROW_UP!()
-                    || keyPressed == ARROW_DOWN!()
-                    || keyPressed == ARROW_LEFT!()
-                    || keyPressed == ARROW_RIGHT!() {
-
-                    return match editorMoveCursor(terminal, keyPressed) {
-                        Ok(_t) => Ok(false),
-                        Err(e) => Err(Error::new(Other, e)),
-                    };
-                };
-                // terminal.content[size-1] = input_buf;
                 Ok(false)
             }
         }
@@ -114,7 +160,7 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
 }
 
 // process input
-pub(crate) fn editorReadKey() -> io::Result<i32> {
+pub(crate) fn editorReadKey(buf: &mut String) -> io::Result<i32> {
     let mut c = [0u8; 1];
     loop {
         //read 1 byte in
@@ -174,7 +220,11 @@ pub(crate) fn editorReadKey() -> io::Result<i32> {
 
         Ok(b'\x1b' as i32)
     } else {
-        Ok(c[0] as i32)
+        match c[0] {
+            13 => Ok(ENTER_KEY!()),
+            127 => Ok(BACKSPACE_KEY!()),
+            _ => Ok(c[0] as i32)
+        }
     }
 }
 

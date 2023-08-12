@@ -106,12 +106,12 @@ impl Terminal {
                     }
 
                     //read input buffer
-                    nread = io::stdin().read(&mut c)?;
+                    nread = stdin().read(&mut c)?;
                     if nread != 1 {
                         break;
                     }
                     buf[i] = c[0] as char;
-                    if buf[i] as char == 'R' {
+                    if buf[i] == 'R' {
                         break;
                     }
                     i += 1;
@@ -156,11 +156,6 @@ impl Terminal {
                         "Invalid parsing of parts in getCursorPosition",
                     ));
                 }
-
-                // match editorReadKey() {
-                //     Ok(_t) => {}
-                //     Err(e) => return Err(Error::new(Other, e)),
-                // }
             }
             Err(_e) => return Err(Error::new(Other, "bad write at getCursorPosition")),
         };
