@@ -1,3 +1,5 @@
+#![allow(non_camel_case_types)]
+
 use crate::input::editorReadKey;
 
 use nix::libc::{
@@ -6,17 +8,26 @@ use nix::libc::{
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
 use std::ffi::c_int;
+use std::fs;
 use std::io;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, Error, ErrorKind, Read, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 
+use nix::sys::socket::AddressFamily::Packet;
+use std::fs::{read, File};
+
 pub(crate) struct Terminal {
+    /*==============Terminal Stuff=================*/
     pub(crate) orig_termios: termios::Termios,
-    pub(crate) screen_rows: c_int,
-    pub(crate) screen_cols: c_int,
-    pub(crate) curs_x: c_int,
-    pub(crate) curs_y: c_int,
+    pub(crate) screen_rows: c_int, //number of rows in terminal window
+    pub(crate) screen_cols: c_int, //number of columms in terminal window
+    pub(crate) curs_x: c_int,      //horizontal position of the cursor
+    pub(crate) curs_y: c_int,      //vertical position of the cursor
+    /*==============Text processing===============*/
+    pub(crate) content: Vec<String>, //the text content we are working on
+    pub(crate) v_offset: i32, // vertical scrolling padding
+    pub(crate) h_offset: i32,
 }
 
 impl Terminal {
@@ -67,10 +78,9 @@ impl Terminal {
         if result == -1 || ws.ws_col == 0 {
             // we tell terminal to move to bottom right edge with large values
             match stdout().write_all(b"\x1b[999C\x1b[999B") {
-                Ok(_c) => {}
-                Err(_e) => return Err(Error::new(Other, "Error: Failed write at getWindowSize")),
+                Ok(_c) => self.getCursorPosition(rows, cols),
+                Err(_e) => Err(Error::new(Other, "Error: Failed write at getWindowSize")),
             }
-            return self.getCursorPosition(rows, cols);
         } else {
             *rows = ws.ws_row as c_int;
             *cols = ws.ws_col as c_int;
@@ -96,12 +106,12 @@ impl Terminal {
                     }
 
                     //read input buffer
-                    nread = io::stdin().read(&mut c)?;
+                    nread = stdin().read(&mut c)?;
                     if nread != 1 {
                         break;
                     }
                     buf[i] = c[0] as char;
-                    if buf[i] as char == 'R' {
+                    if buf[i] == 'R' {
                         break;
                     }
                     i += 1;
@@ -146,11 +156,6 @@ impl Terminal {
                         "Invalid parsing of parts in getCursorPosition",
                     ));
                 }
-
-                match editorReadKey() {
-                    Ok(_t) => {}
-                    Err(e) => return Err(Error::new(Other, e)),
-                }
             }
             Err(_e) => return Err(Error::new(Other, "bad write at getCursorPosition")),
         };
@@ -160,6 +165,8 @@ impl Terminal {
     pub(crate) fn initEditor(&mut self) -> io::Result<()> {
         self.curs_x = 0;
         self.curs_y = 0;
+        self.v_offset = 0;
+        self.content.push(String::from(" "));
 
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
@@ -167,10 +174,26 @@ impl Terminal {
             Ok(_c) => {
                 self.screen_rows = rows;
                 self.screen_cols = cols;
+                self.screen_rows -= 1; //for our status bar
                 Ok(())
             }
             Err(e) => return Err(Error::new(Other, e)),
         }
+    }
+
+    // read from file
+    pub(crate) fn editorOpenFile(&mut self, fp: &str) -> io::Result<()> {
+        match File::open(fp) {
+            Ok(file) => {
+                let bufreader = BufReader::new(file);
+                for line in bufreader.lines() {
+                    let text = line.unwrap().replace('\t', "    ").to_owned();
+                    self.content.push(text);
+                }
+            }
+            Err(e) => return Err(Error::new(Other, e)),
+        }
+        Ok(())
     }
 }
 
