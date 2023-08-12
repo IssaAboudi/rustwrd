@@ -14,7 +14,6 @@ use std::io::ErrorKind::Other;
 use std::io::{stdin, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 
-use nix::sys::socket::AddressFamily::Packet;
 use std::fs::{read, File};
 
 pub(crate) struct Terminal {
