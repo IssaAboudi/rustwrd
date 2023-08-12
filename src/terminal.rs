@@ -14,8 +14,9 @@ use std::io::ErrorKind::Other;
 use std::io::{stdin, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
 
-use nix::sys::socket::AddressFamily::Packet;
 use std::fs::{read, File};
+use std::thread::sleep;
+use std::time::Duration;
 
 pub(crate) struct Terminal {
     /*==============Terminal Stuff=================*/
@@ -27,7 +28,7 @@ pub(crate) struct Terminal {
     /*==============Text processing===============*/
     pub(crate) content: Vec<String>, //the text content we are working on
     pub(crate) v_offset: i32, // vertical scrolling padding
-    pub(crate) h_offset: i32,
+    pub(crate) fp: String //keep track of file we're editing if we are
 }
 
 impl Terminal {
@@ -167,7 +168,7 @@ impl Terminal {
         self.curs_y = 0;
         self.v_offset = 0;
         self.content.push(String::from(" "));
-
+        self.fp = String::new();
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
         match self.getWindowSize(&mut rows, &mut cols) {
@@ -185,11 +186,26 @@ impl Terminal {
     pub(crate) fn editorOpenFile(&mut self, fp: &str) -> io::Result<()> {
         match File::open(fp) {
             Ok(file) => {
+                self.content.pop(); // by default has empty first line - get rid of it when reading from a file
                 let bufreader = BufReader::new(file);
                 for line in bufreader.lines() {
                     let text = line.unwrap().replace('\t', "    ").to_owned();
                     self.content.push(text);
                 }
+                self.fp = String::from(fp);
+            }
+            Err(e) => return Err(Error::new(Other, e)),
+        }
+        Ok(())
+    }
+
+    pub(crate) fn editorWriteFile(&mut self, fp: String) -> io::Result<()> {
+        match File::create(fp) {
+            Ok(mut file) => {
+                file.write_all(self.content.join("\r\n").as_bytes()).expect("Invalid Write");
+                stdout().write_all(b"\r\n\r\n\t\tSaving File, Please Wait")?;
+                stdout().flush()?;
+                sleep(Duration::from_secs(2));
             }
             Err(e) => return Err(Error::new(Other, e)),
         }

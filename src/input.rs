@@ -68,13 +68,21 @@ macro_rules! BACKSPACE_KEY {
 
 pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
     let mut input_buf = String::new();
-    let size = terminal.content.len();
     match editorReadKey(&mut input_buf) {
         Ok(keyPressed) => {
-            if keyPressed == CTRL_KEY!('q' as u8) as i32 {
+            if keyPressed == CTRL_KEY!(b'q') as i32 {
                 Ok(true) //exit the program
-            } else {
-
+            } else if keyPressed == CTRL_KEY!(b'u') as i32 {
+                //clear line
+                terminal.content[terminal.curs_y as usize] = String::new();
+                terminal.curs_x = 0;
+                Ok(false)
+            } else if keyPressed == CTRL_KEY!(b's') as i32 {
+                let fp = terminal.fp.clone();
+                terminal.editorWriteFile(fp)?;
+                Ok(false)
+            }
+            else {
                 match keyPressed {
                     HOME_KEY!() => {
                         terminal.curs_x = 0;
@@ -142,11 +150,20 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
                         };
                     }
                     BACKSPACE_KEY!() => {
-                        if terminal.curs_x > 0 { // constrain backspace
+                        if terminal.curs_x > 0 { // constrain backspace to beginning of line
                             terminal.content[terminal.curs_y as usize].remove(terminal.curs_x  as usize -1);
                             terminal.curs_x -= 1;
+                        } else if terminal.curs_x == 0 && terminal.curs_y > 0 {
+                            terminal.content.pop();
+                            terminal.curs_y -= 1;
+
+                            let invalidString = String::from("");
+                            let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+
+                            terminal.curs_x = curr_row.len() as i32;
                         }
                     }
+                    //default typing behavior
                     _ => {
                         terminal.content[terminal.curs_y as usize].insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
                         terminal.curs_x += 1;

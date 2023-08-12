@@ -18,7 +18,7 @@ use std::io::ErrorKind::Other;
 use std::io::{BufRead, Read, stdin, stdout, Write};
 use std::{env, io};
 
-
+#[allow(dead_code)]
 fn keycodes() -> io::Result<()> {
     let mut c: char;
     //loop through all input bytes
@@ -50,8 +50,8 @@ fn main() -> io::Result<()> {
         curs_x: 0,
         curs_y: 0,
         v_offset: 0,
-        h_offset: 0,
-         content: Vec::new(),
+        fp: String::new(),
+        content: Vec::new(),
     };
 
     terminal.enableRawMode()?;
@@ -66,9 +66,9 @@ fn main() -> io::Result<()> {
         editorRefreshScreen(&mut terminal)?;
         match editorProcessKeypress(&mut terminal) {
             Ok(exit) => {
-                if exit == true {
-                    let _status = stdout().write_all(b"\x1b[2J")?;
-                    let _status = stdout().write_all(b"\x1b[H")?;
+                if exit {
+                    stdout().write_all(b"\x1b[2J")?;
+                    stdout().write_all(b"\x1b[H")?;
                     break;
                 } else {
                 }
