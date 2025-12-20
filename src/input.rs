@@ -1,10 +1,10 @@
 use std::io;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, Error, ErrorKind, Read, Write};
+use std::io::{stdin, Error, Read};
 
 use crate::Terminal;
 
-//Macro to add CTRL modifier to each key
+// Macro to add CTRL modifier to each key
 macro_rules! CTRL_KEY {
     ($k : expr) => {
         $k & 0x1f
@@ -58,45 +58,72 @@ macro_rules! DEL_KEY {
     };
 }
 macro_rules! ENTER_KEY {
-    () => {1009};
+    () => {
+        1009
+    };
 }
 macro_rules! BACKSPACE_KEY {
     () => {
         1010
     };
 }
+macro_rules! ESCAPE_KEY {
+    () => {
+        27
+    };
+}
+macro_rules! SPACE_KEY {
+    () => {
+        32
+    };
+}
 
-pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool> {
+// editor states
+#[derive(PartialEq)]
+pub enum EditorStates {
+    Exit,     // quit the program
+    Continue, // continue execution
+    Save,     // save file
+}
+
+pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<EditorStates> {
     let mut input_buf = String::new();
-    match editorReadKey(&mut input_buf) {
-        Ok(keyPressed) => {
-            if keyPressed == CTRL_KEY!(b'q') as i32 {
-                Ok(true) //exit the program
-            } else if keyPressed == CTRL_KEY!(b'u') as i32 {
-                //clear line
+    match editor_read_key(&mut input_buf) {
+        Ok(key_pressed) => {
+            // key combos
+            if key_pressed == CTRL_KEY!(b'q') as i32 {
+                Ok(EditorStates::Exit) //exit the program
+            } else if key_pressed == CTRL_KEY!(b'u') as i32 {
+                // clear line
                 terminal.content[terminal.curs_y as usize] = String::new();
                 terminal.curs_x = 0;
-                Ok(false)
-            } else if keyPressed == CTRL_KEY!(b's') as i32 {
+                Ok(EditorStates::Continue)
+            } else if key_pressed == CTRL_KEY!(b's') as i32 {
+                // save file
                 let fp = terminal.fp.clone();
-                terminal.editorWriteFile(fp)?;
-                Ok(false)
-            }
-            else {
-                match keyPressed {
+                terminal.editor_write_file(fp)?;
+                Ok(EditorStates::Save)
+            } else {
+                // all other keys
+                match key_pressed {
                     HOME_KEY!() => {
                         terminal.curs_x = 0;
                     }
                     END_KEY!() => {
                         let invalidString = String::from("");
-                        let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                        let curr_row = terminal
+                            .content
+                            .get(terminal.curs_y as usize)
+                            .unwrap_or(&invalidString);
                         terminal.curs_x = curr_row.len() as i32;
                     }
                     PAGE_UP!() => {
                         let mut times = terminal.screen_rows;
                         while times > 0 {
-                            match editorMoveCursor(terminal,  ARROW_UP!() ) {
-                                Ok(_t) => { times -= 1; }
+                            match editor_move_cursor(terminal, ARROW_UP!()) {
+                                Ok(_t) => {
+                                    times -= 1;
+                                }
                                 Err(e) => return Err(Error::new(Other, e)),
                             };
                         }
@@ -104,8 +131,10 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
                     PAGE_DOWN!() => {
                         let mut times = terminal.screen_rows;
                         while times > 0 {
-                            match editorMoveCursor(terminal, ARROW_DOWN!() ) {
-                                Ok(_t) => { times -= 1; }
+                            match editor_move_cursor(terminal, ARROW_DOWN!()) {
+                                Ok(_t) => {
+                                    times -= 1;
+                                }
                                 Err(e) => return Err(Error::new(Other, e)),
                             };
                         }
@@ -115,61 +144,80 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
                         terminal.curs_y += 1;
 
                         let invalidString = String::from("");
-                        let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                        let curr_row = terminal
+                            .content
+                            .get(terminal.curs_y as usize)
+                            .unwrap_or(&invalidString);
 
                         if terminal.curs_x >= curr_row.len() as i32 {
                             //if we exceed the boundary for our new row,
                             // snap back to last character in the row
                             terminal.curs_x = curr_row.len() as i32;
                         }
-
                     }
                     //trigger cursor movement
                     ARROW_UP!() => {
-                        return match editorMoveCursor(terminal, keyPressed) {
-                            Ok(_t) => Ok(false),
+                        return match editor_move_cursor(terminal, key_pressed) {
+                            Ok(_t) => Ok(EditorStates::Continue),
                             Err(e) => Err(Error::new(Other, e)),
                         };
                     }
                     ARROW_DOWN!() => {
-                        return match editorMoveCursor(terminal, keyPressed) {
-                            Ok(_t) => Ok(false),
+                        return match editor_move_cursor(terminal, key_pressed) {
+                            Ok(_t) => Ok(EditorStates::Continue),
                             Err(e) => Err(Error::new(Other, e)),
                         };
                     }
                     ARROW_LEFT!() => {
-                        return match editorMoveCursor(terminal, keyPressed) {
-                            Ok(_t) => Ok(false),
+                        terminal.snip_start = terminal.curs_x;
+                        return match editor_move_cursor(terminal, key_pressed) {
+                            Ok(_t) => Ok(EditorStates::Continue),
                             Err(e) => Err(Error::new(Other, e)),
                         };
                     }
                     ARROW_RIGHT!() => {
-                        return match editorMoveCursor(terminal, keyPressed) {
-                            Ok(_t) => Ok(false),
+                        terminal.snip_start = terminal.curs_x;
+                        return match editor_move_cursor(terminal, key_pressed) {
+                            Ok(_t) => Ok(EditorStates::Continue),
                             Err(e) => Err(Error::new(Other, e)),
                         };
                     }
                     BACKSPACE_KEY!() => {
-                        if terminal.curs_x > 0 { // constrain backspace to beginning of line
-                            terminal.content[terminal.curs_y as usize].remove(terminal.curs_x  as usize -1);
+                        if terminal.curs_x > 0 {
+                            // constrain backspace to beginning of line
+                            terminal.content[terminal.curs_y as usize]
+                                .remove(terminal.curs_x as usize - 1);
                             terminal.curs_x -= 1;
                         } else if terminal.curs_x == 0 && terminal.curs_y > 0 {
                             terminal.content.pop();
                             terminal.curs_y -= 1;
 
                             let invalidString = String::from("");
-                            let curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                            let curr_row = terminal
+                                .content
+                                .get(terminal.curs_y as usize)
+                                .unwrap_or(&invalidString);
 
                             terminal.curs_x = curr_row.len() as i32;
                         }
                     }
+                    ESCAPE_KEY!() => { /* do nothing */ }
+                    SPACE_KEY!() => {
+                        // run process code here
+
+                        terminal.snip_start = terminal.curs_x;
+                        // append space to the buffer
+                        terminal.content[terminal.curs_y as usize]
+                            .insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
+                    }
                     //default typing behavior
                     _ => {
-                        terminal.content[terminal.curs_y as usize].insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
+                        terminal.content[terminal.curs_y as usize]
+                            .insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
                         terminal.curs_x += 1;
                     }
                 }
-                Ok(false)
+                Ok(EditorStates::Continue)
             }
         }
         Err(_e) => Err(Error::new(Other, "failed at editorReadKey")),
@@ -177,7 +225,7 @@ pub(crate) fn editorProcessKeypress(terminal: &mut Terminal) -> io::Result<bool>
 }
 
 // process input
-pub(crate) fn editorReadKey(buf: &mut String) -> io::Result<i32> {
+pub(crate) fn editor_read_key(buf: &mut String) -> io::Result<i32> {
     let mut c = [0u8; 1];
     loop {
         //read 1 byte in
@@ -240,55 +288,71 @@ pub(crate) fn editorReadKey(buf: &mut String) -> io::Result<i32> {
         match c[0] {
             13 => Ok(ENTER_KEY!()),
             127 => Ok(BACKSPACE_KEY!()),
-            _ => Ok(c[0] as i32)
+            27 => Ok(ESCAPE_KEY!()),
+            _ => Ok(c[0] as i32),
         }
     }
 }
 
-pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<()> {
-    let invalidString = String::from("");
-    let mut curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+pub(crate) fn editor_move_cursor(terminal: &mut Terminal, key: i32) -> io::Result<()> {
+    let invalid_string = String::from("");
+    let mut curr_row = terminal
+        .content
+        .get(terminal.curs_y as usize)
+        .unwrap_or(&invalid_string);
 
     //movement with bounds checking
     //left is 0
     //top is 0
     match key {
         ARROW_LEFT!() => {
-            if terminal.curs_x > 0 { //bounds checking
+            if terminal.curs_x > 0 {
+                //bounds checking
                 terminal.curs_x -= 1 // - means move left
             }
-            //handle pressing left at start of line
-            if terminal.curs_x == 0
-                && terminal.curs_y > 0 {
+            // handle pressing left at start of line
+            if terminal.curs_x == 0 && terminal.curs_y > 0 {
                 //move cursor up 1 row
                 terminal.curs_y -= 1;
                 //recalculate the current row's length
-                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                curr_row = terminal
+                    .content
+                    .get(terminal.curs_y as usize)
+                    .unwrap_or(&invalid_string);
                 //bring us to last character in previous row
                 terminal.curs_x = curr_row.len() as i32;
             }
         }
         ARROW_RIGHT!() => {
-            if terminal.curs_x < curr_row.len() as i32 { //bounds checking
+            if terminal.curs_x < curr_row.len() as i32 {
+                //bounds checking
                 terminal.curs_x += 1 // + means move right
             }
             //handle pressing right at end of line
             if terminal.curs_x == curr_row.len() as i32
-                && terminal.curs_y < terminal.content.len() as i32 - 1 {
+                && terminal.curs_y < terminal.content.len() as i32 - 1
+            {
                 //move cursor down 1 row
                 terminal.curs_y += 1;
                 //recalculate the current row's length
-                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                curr_row = terminal
+                    .content
+                    .get(terminal.curs_y as usize)
+                    .unwrap_or(&invalid_string);
                 //bring us to first character in next row
                 terminal.curs_x = 0;
             }
         }
         ARROW_UP!() => {
-            if terminal.curs_y > 0 { // bounds checking
+            if terminal.curs_y > 0 {
+                // bounds checking
                 terminal.curs_y -= 1; // - means move up
 
                 //recalculate the current row's length
-                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                curr_row = terminal
+                    .content
+                    .get(terminal.curs_y as usize)
+                    .unwrap_or(&invalid_string);
                 if terminal.curs_x >= curr_row.len() as i32 {
                     //if we exceed the boundary for our new row,
                     // snap back to last character in the row
@@ -297,11 +361,15 @@ pub(crate) fn editorMoveCursor(terminal: &mut Terminal, key: i32) -> io::Result<
             }
         }
         ARROW_DOWN!() => {
-            if terminal.curs_y < terminal.content.len() as i32 - 1 { //bounds checking
+            if terminal.curs_y < terminal.content.len() as i32 - 1 {
+                //bounds checking
                 terminal.curs_y += 1; // + means move down
 
                 //recalculate the current row's length
-                curr_row = terminal.content.get(terminal.curs_y as usize).unwrap_or(&invalidString);
+                curr_row = terminal
+                    .content
+                    .get(terminal.curs_y as usize)
+                    .unwrap_or(&invalid_string);
                 if terminal.curs_x >= curr_row.len() as i32 {
                     //if we exceed the boundary for our new row,
                     // snap back to last character in the row

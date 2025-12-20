@@ -1,11 +1,9 @@
-#![allow(non_snake_case)]
-#![allow(unused_imports)]
-
 mod input;
 mod output;
-
-use crate::input::{editorProcessKeypress, editorReadKey};
-use crate::output::editorRefreshScreen;
+mod utils;
+use crate::input::{editor_process_keypress, editor_read_key, EditorStates};
+use crate::output::editor_refresh_screen;
+use crate::utils::constants::{CLR_SCREEN, MOV_CURS_HOME};
 
 mod terminal;
 
@@ -13,13 +11,11 @@ use terminal::Terminal;
 
 use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
-use std::fs::File;
-use std::io::ErrorKind::Other;
-use std::io::{BufRead, Read, stdin, stdout, Write};
+use std::io::{stdin, stdout, Read, Write};
 use std::{env, io};
 
 #[allow(dead_code)]
-fn keycodes() -> io::Result<()> {
+fn keycodes() -> io::Result<bool> {
     let mut c: char;
     //loop through all input bytes
     for byte in stdin().bytes() {
@@ -27,7 +23,7 @@ fn keycodes() -> io::Result<()> {
         c = b as char;
         if c == 'q' {
             //q exits the program
-            break;
+            return Ok(false);
         } else if c.is_ascii_control() {
             //^ + letter gives the number of that letter
             println!("{}\r\n", b);
@@ -36,7 +32,7 @@ fn keycodes() -> io::Result<()> {
             println!("[`{}`]: , {}\r\n", c, b);
         }
     }
-    Ok(())
+    Ok(true)
 }
 
 // entry point
@@ -47,6 +43,7 @@ fn main() -> io::Result<()> {
         orig_termios: termios::tcgetattr(STDIN_FILENO)?,
         screen_rows: 0,
         screen_cols: 0,
+        snip_start: 0,
         curs_x: 0,
         curs_y: 0,
         v_offset: 0,
@@ -54,27 +51,33 @@ fn main() -> io::Result<()> {
         content: Vec::new(),
     };
 
-    terminal.enableRawMode()?;
-    terminal.initEditor()?;
+    terminal.enable_raw_mode()?;
+    terminal.init_editor()?;
     if args.len() >= 2 {
-        terminal.editorOpenFile(&args[1])?;
+        terminal.editor_open_file(&args[1])?;
     }
 
-    // keycodes();
+    // loop {
+    //     match keycodes() {
+    //         Ok(false) => break,
+    //         Ok(true) => continue,
+    //         Err(_e) => return Err(_e),
+    //     }
+    // }
 
     loop {
-        editorRefreshScreen(&mut terminal)?;
-        match editorProcessKeypress(&mut terminal) {
+        editor_refresh_screen(&mut terminal)?;
+        match editor_process_keypress(&mut terminal) {
             Ok(exit) => {
-                if exit {
-                    stdout().write_all(b"\x1b[2J")?;
-                    stdout().write_all(b"\x1b[H")?;
+                if exit == EditorStates::Exit {
+                    stdout().write_all(CLR_SCREEN)?;
+                    stdout().write_all(MOV_CURS_HOME)?;
                     break;
-                } else {
+                } else { /* continue execution */
                 }
             }
             Err(_e) => {
-                editorRefreshScreen(&mut terminal)?;
+                editor_refresh_screen(&mut terminal)?;
             }
         }
     }
