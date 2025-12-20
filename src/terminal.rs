@@ -1,6 +1,6 @@
 #![allow(non_camel_case_types)]
 
-use crate::input::editor_read_key;
+use crate::input::{editor_read_key, EditorMode};
 use crate::utils::constants::GET_CURS_POS;
 
 use nix::libc::{
@@ -26,12 +26,13 @@ pub(crate) struct Terminal {
     pub(crate) screen_cols: c_int, //number of columms in terminal window
     pub(crate) curs_x: c_int,      //horizontal position of the cursor
     pub(crate) curs_y: c_int,      //vertical position of the cursor
+    pub(crate) term_mode: EditorMode, //editor mode
     /*==============Text processing===============*/
     pub(crate) content: Vec<String>, //the text content we are working on
-    pub(crate) v_offset: i32,        // vertical scrolling padding
+    pub(crate) v_offset: i32,        //vertical scrolling padding
     pub(crate) fp: String,           //keep track of file we're editing if we are
     /*===================Arabizi==================*/
-    pub(crate) snip_start: c_int, // start of arabizi snippet (end is curs_x)
+    pub(crate) snip_start: c_int, //start of arabizi snippet (end is curs_x)
 }
 
 impl Terminal {

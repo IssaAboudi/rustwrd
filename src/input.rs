@@ -1,3 +1,4 @@
+use core::fmt;
 use std::io;
 use std::io::ErrorKind::Other;
 use std::io::{stdin, Error, Read};
@@ -81,9 +82,47 @@ macro_rules! SPACE_KEY {
 // editor states
 #[derive(PartialEq)]
 pub enum EditorStates {
-    Exit,     // quit the program
-    Continue, // continue execution
-    Save,     // save file
+    Exit,                   // quit the program
+    Continue,               // continue execution
+    Save,                   // save file
+    ChangeMode(EditorMode), // change editor mode
+}
+
+#[derive(PartialEq)]
+pub enum EditorMode {
+    Normal,        // simple text editing in English
+    Arabizi,       // detect english/arabic text
+    KeyCodeReader, // test Keycodes
+}
+
+impl fmt::Display for EditorMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EditorMode::Normal => write!(f, "Mode: Normal"),
+            EditorMode::Arabizi => write!(f, "Mode: Arabizi"),
+            EditorMode::KeyCodeReader => write!(f, "Mode: Keycode"),
+        }
+    }
+}
+
+pub(crate) fn editor_check_keycodes() -> io::Result<EditorStates> {
+    let mut c: char;
+    //loop through all input bytes
+    for byte in stdin().bytes() {
+        let b = byte?;
+        c = b as char;
+        if c == 'q' {
+            //q exits the program
+            return Ok(EditorStates::ChangeMode(EditorMode::Normal));
+        } else if c.is_ascii_control() {
+            //^ + letter gives the number of that letter
+            println!("{}\r\n", b);
+        } else {
+            //otherwise just display the character then it's ascii value
+            println!("[`{}`]: , {}\r\n", c, b);
+        }
+    }
+    Ok(EditorStates::Continue)
 }
 
 pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<EditorStates> {
@@ -103,6 +142,14 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                 let fp = terminal.fp.clone();
                 terminal.editor_write_file(fp)?;
                 Ok(EditorStates::Save)
+            } else if key_pressed == CTRL_KEY!(b'n') as i32 {
+                // set normal mode
+                Ok(EditorStates::ChangeMode(EditorMode::Normal))
+            } else if key_pressed == CTRL_KEY!(b'a') as i32 {
+                // set arabizi mode
+                Ok(EditorStates::ChangeMode(EditorMode::Arabizi))
+            } else if key_pressed == CTRL_KEY!(b'k') as i32 {
+                Ok(EditorStates::ChangeMode(EditorMode::KeyCodeReader))
             } else {
                 // all other keys
                 match key_pressed {
@@ -185,36 +232,54 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                     BACKSPACE_KEY!() => {
                         if terminal.curs_x > 0 {
                             // constrain backspace to beginning of line
-                            terminal.content[terminal.curs_y as usize]
-                                .remove(terminal.curs_x as usize - 1);
-                            terminal.curs_x -= 1;
+                            let row = &mut terminal.content[terminal.curs_y as usize];
+                            if let Some((byte_idx, ch)) =
+                                row.char_indices().nth(terminal.curs_x as usize - 1)
+                            {
+                                let char_len = ch.len_utf8();
+                                row.drain(byte_idx..byte_idx + char_len);
+
+                                terminal.curs_x -= 1;
+                            }
                         } else if terminal.curs_x == 0 && terminal.curs_y > 0 {
-                            terminal.content.pop();
+                            let current_row = terminal.content.remove(terminal.curs_y as usize);
                             terminal.curs_y -= 1;
 
-                            let invalidString = String::from("");
-                            let curr_row = terminal
-                                .content
-                                .get(terminal.curs_y as usize)
-                                .unwrap_or(&invalidString);
-
-                            terminal.curs_x = curr_row.len() as i32;
+                            let prev_row = &mut terminal.content[terminal.curs_y as usize];
+                            terminal.curs_x = prev_row.chars().count() as i32;
+                            prev_row.push_str(&current_row);
                         }
                     }
                     ESCAPE_KEY!() => { /* do nothing */ }
                     SPACE_KEY!() => {
-                        // run process code here
-
+                        if terminal.term_mode == EditorMode::Arabizi {
+                            // run arabizi code here
+                        }
                         terminal.snip_start = terminal.curs_x;
                         // append space to the buffer
-                        terminal.content[terminal.curs_y as usize]
-                            .insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
+                        if let Some(ch) = input_buf.chars().next() {
+                            let row = &mut terminal.content[terminal.curs_y as usize];
+                            let byte_idx = row
+                                .char_indices()
+                                .nth(terminal.curs_x as usize)
+                                .map_or(row.len(), |(i, _)| i);
+                            terminal.content[terminal.curs_y as usize]
+                                .insert(byte_idx as usize, ch);
+                            terminal.curs_x += 1;
+                        }
                     }
                     //default typing behavior
                     _ => {
-                        terminal.content[terminal.curs_y as usize]
-                            .insert(terminal.curs_x as usize, input_buf.chars().next().unwrap());
-                        terminal.curs_x += 1;
+                        if let Some(ch) = input_buf.chars().next() {
+                            let row = &mut terminal.content[terminal.curs_y as usize];
+                            let byte_idx = row
+                                .char_indices()
+                                .nth(terminal.curs_x as usize)
+                                .map_or(row.len(), |(i, _)| i);
+                            terminal.content[terminal.curs_y as usize]
+                                .insert(byte_idx as usize, ch);
+                            terminal.curs_x += 1;
+                        }
                     }
                 }
                 Ok(EditorStates::Continue)
@@ -224,35 +289,36 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
     }
 }
 
-// process input
 pub(crate) fn editor_read_key(buf: &mut String) -> io::Result<i32> {
-    let mut c = [0u8; 1];
+    // lets read up to 4 bytes
+    let mut read = [0u8; 4];
     loop {
-        //read 1 byte in
-        match stdin().read(&mut c) {
+        match stdin().read(&mut read) {
             Ok(t) => {
-                if t == 1 {
-                    //print the byte we read in
-                    buf.push(c[0] as char);
-                    break;
+                match std::str::from_utf8(&read[0..t]) {
+                    Ok(s) => {
+                        // add all utf8 to buf
+                        if let Some(ch) = s.chars().next() {
+                            buf.push(ch);
+                        }
+                    }
+                    Err(_e) => buf.push('\u{FFD}'),
                 }
+                // get all bytes we read in
+                break;
             }
             Err(e) => return Err(Error::new(Other, e)),
-        };
+        }
     }
 
-    // if key pressed was escape sequence beginning
-    if c[0] == b'\x1b' {
-        let mut seq = [0u8; 3];
-        //read the next bytes
-        let _ = stdin().read(&mut seq)?;
-
-        //if escape follows with a [
-        // then it's an escape sequence
-        if seq[0] == '[' as u8 {
-            if seq[1] >= b'0' && seq[1] <= b'9' {
-                if seq[2] == b'~' {
-                    return match seq[1] {
+    // check if escape sequence
+    if read[0] == b'\x1b' {
+        // escape sequence is followed by a [
+        if read[1] == '[' as u8 {
+            // special keys are 0-9 with a ~ after
+            if read[2] >= b'0' && read[2] <= b'9' {
+                if read[3] == b'~' {
+                    return match read[2] {
                         b'1' => Ok(HOME_KEY!()),
                         b'3' => Ok(DEL_KEY!()),
                         b'4' => Ok(END_KEY!()),
@@ -264,8 +330,8 @@ pub(crate) fn editor_read_key(buf: &mut String) -> io::Result<i32> {
                     };
                 }
             } else {
-                //translate arrow keys
-                return match seq[1] {
+                // arrow keys are A-D
+                return match read[2] {
                     b'A' => Ok(ARROW_UP!()),
                     b'B' => Ok(ARROW_DOWN!()),
                     b'C' => Ok(ARROW_RIGHT!()),
@@ -275,21 +341,27 @@ pub(crate) fn editor_read_key(buf: &mut String) -> io::Result<i32> {
                     _ => Ok(b'\x1b' as i32),
                 };
             }
-        } else if seq[0] == b'O' {
-            return match seq[1] {
+        } else if read[1] == b'0' {
+            // more bindings for compatibility reasons
+            return match read[2] {
                 b'H' => Ok(HOME_KEY!()),
                 b'F' => Ok(END_KEY!()),
                 _ => Ok(b'\x1b' as i32),
             };
         }
-
         Ok(b'\x1b' as i32)
+    } else if read[0] > 127 {
+        // non ascii characters are flagged as -1
+        // 0-127 is printable ascii characters and over is unicode
+        // process keypress will still print the arabic no problem
+        Ok(-1)
     } else {
-        match c[0] {
+        // regular key presses
+        match read[0] {
             13 => Ok(ENTER_KEY!()),
             127 => Ok(BACKSPACE_KEY!()),
             27 => Ok(ESCAPE_KEY!()),
-            _ => Ok(c[0] as i32),
+            _ => Ok(read[0] as i32),
         }
     }
 }

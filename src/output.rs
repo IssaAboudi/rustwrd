@@ -69,7 +69,7 @@ fn display_credits(terminal: &Terminal, ab: &mut Vec<u8>) {
     ab.extend(b"\r\n");
 
     //do it again for author
-    let padding = ((terminal.screen_cols - author.len() as i32) / 2) + 3;
+    let padding = (terminal.screen_cols - author.len() as i32) / 2;
     if padding > 0 {
         ab.extend(PRFX!());
         let spaces = " ".repeat(padding as usize);
@@ -99,13 +99,16 @@ pub(crate) fn editor_draw_rows(terminal: &Terminal, ab: &mut Vec<u8>) -> io::Res
         let file_row = i + terminal.v_offset;
 
         if file_row >= terminal.content.len() as i32 {
+            let has_content = terminal.content.iter().any(|line| !line.trim().is_empty());
             //add welcome message in the bottom 1/3 of the window
-            if i == (terminal.screen_rows / 3 + 10) && terminal.content.is_empty() {
-                if terminal.content.is_empty() {
+            if i == (terminal.screen_rows / 3 + 10) && !has_content {
+                if !has_content {
                     display_credits(terminal, ab);
                 } else {
                     ab.extend(b"\r\n"); //adds another space - don't remove this
                 }
+            } else if i == terminal.screen_rows as i32 {
+                ab.extend(terminal.term_mode.to_string().as_bytes());
             } else {
                 // write a period on every line
                 ab.extend(PRFX!());

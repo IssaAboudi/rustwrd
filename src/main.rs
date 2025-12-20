@@ -1,9 +1,12 @@
+mod Arabizi;
 mod input;
 mod output;
 mod utils;
-use crate::input::{editor_process_keypress, editor_read_key, EditorStates};
+use crate::input::{editor_check_keycodes, editor_process_keypress, EditorMode, EditorStates};
 use crate::output::editor_refresh_screen;
 use crate::utils::constants::{CLR_SCREEN, MOV_CURS_HOME};
+use crate::Arabizi::{arabizi_process_input, import_frequencies, LanguageFrequencies};
+use once_cell::sync::Lazy;
 
 mod terminal;
 
@@ -11,29 +14,56 @@ use terminal::Terminal;
 
 use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
-use std::io::{stdin, stdout, Read, Write};
+use std::collections::HashMap;
+use std::io::{stdout, Write};
+use std::sync::RwLock;
 use std::{env, io};
 
-#[allow(dead_code)]
-fn keycodes() -> io::Result<bool> {
-    let mut c: char;
-    //loop through all input bytes
-    for byte in stdin().bytes() {
-        let b = byte?;
-        c = b as char;
-        if c == 'q' {
-            //q exits the program
-            return Ok(false);
-        } else if c.is_ascii_control() {
-            //^ + letter gives the number of that letter
-            println!("{}\r\n", b);
-        } else {
-            //otherwise just display the character then it's ascii value
-            println!("[`{}`]: , {}\r\n", c, b);
-        }
-    }
-    Ok(true)
-}
+static LANGUAGE_FREQUENCIES: Lazy<RwLock<LanguageFrequencies>> = Lazy::new(|| {
+    RwLock::new(match import_frequencies() {
+        Ok(freq) => freq,
+        Err(_e) => LanguageFrequencies::default(),
+    })
+});
+
+static EN_TO_AR: Lazy<RwLock<HashMap<char, &str>>> = Lazy::new(|| {
+    RwLock::new(HashMap::from([
+        ('a', "ش"),
+        ('s', "س"),
+        ('d', "ي"),
+        ('f', "ب"),
+        ('g', "ل"),
+        ('h', "ا"),
+        ('j', "ت"),
+        ('k', "ن"),
+        ('l', "م"),
+        (';', "ك"),
+        ('\'', "ط"),
+        ('`', "ذ"),
+        ('q', "ض"),
+        ('w', "ص"),
+        ('e', "ث"),
+        ('r', "ق"),
+        ('t', "ف"),
+        ('y', "غ"),
+        ('u', "ع"),
+        ('i', "ه"),
+        ('o', "خ"),
+        ('p', "ح"),
+        ('[', "ج"),
+        (']', "د"),
+        ('z', "ئ"),
+        ('x', "ء"),
+        ('c', "ؤ"),
+        ('v', "ر"),
+        ('b', "لا"),
+        ('n', "ى"),
+        ('m', "ة"),
+        (',', "و"),
+        ('.', "ز"),
+        ('/', "ظ"),
+    ]))
+});
 
 // entry point
 fn main() -> io::Result<()> {
@@ -45,6 +75,7 @@ fn main() -> io::Result<()> {
         screen_cols: 0,
         snip_start: 0,
         curs_x: 0,
+        term_mode: EditorMode::Normal,
         curs_y: 0,
         v_offset: 0,
         fp: String::new(),
@@ -57,28 +88,45 @@ fn main() -> io::Result<()> {
         terminal.editor_open_file(&args[1])?;
     }
 
-    // loop {
-    //     match keycodes() {
-    //         Ok(false) => break,
-    //         Ok(true) => continue,
-    //         Err(_e) => return Err(_e),
+    //     loop {
+    //         match keycodes() {
+    //             Ok(false) => break,
+    //             Ok(true) => continue,
+    //             Err(_e) => return Err(_e),
+    //         }
     //     }
     // }
 
     loop {
-        editor_refresh_screen(&mut terminal)?;
-        match editor_process_keypress(&mut terminal) {
-            Ok(exit) => {
-                if exit == EditorStates::Exit {
-                    stdout().write_all(CLR_SCREEN)?;
-                    stdout().write_all(MOV_CURS_HOME)?;
-                    break;
-                } else { /* continue execution */
+        match terminal.term_mode {
+            EditorMode::Normal | EditorMode::Arabizi => {
+                editor_refresh_screen(&mut terminal)?;
+                match editor_process_keypress(&mut terminal) {
+                    Ok(EditorStates::Exit) => {
+                        stdout().write_all(CLR_SCREEN)?;
+                        stdout().write_all(MOV_CURS_HOME)?;
+                        break;
+                    }
+                    Ok(EditorStates::ChangeMode(new_mode)) => {
+                        stdout().write_all(CLR_SCREEN)?;
+                        stdout().write_all(MOV_CURS_HOME)?;
+                        terminal.term_mode = new_mode;
+                    }
+                    Ok(_) => continue,
+                    Err(_e) => {
+                        editor_refresh_screen(&mut terminal)?;
+                    }
                 }
             }
-            Err(_e) => {
-                editor_refresh_screen(&mut terminal)?;
-            }
+            EditorMode::KeyCodeReader => match editor_check_keycodes() {
+                Ok(EditorStates::ChangeMode(new_mode)) => {
+                    stdout().write_all(CLR_SCREEN)?;
+                    stdout().write_all(MOV_CURS_HOME)?;
+                    terminal.term_mode = new_mode;
+                }
+                Ok(_) => continue,
+                Err(_e) => return Err(_e),
+            },
         }
     }
 
