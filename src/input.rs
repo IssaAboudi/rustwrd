@@ -3,6 +3,7 @@ use std::io;
 use std::io::ErrorKind::Other;
 use std::io::{stdin, Error, Read};
 
+use crate::Arabizi::arabizi_process_input;
 use crate::Terminal;
 
 // Macro to add CTRL modifier to each key
@@ -136,6 +137,7 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                 // clear line
                 terminal.content[terminal.curs_y as usize] = String::new();
                 terminal.curs_x = 0;
+                terminal.snip_start = 0;
                 Ok(EditorStates::Continue)
             } else if key_pressed == CTRL_KEY!(b's') as i32 {
                 // save file
@@ -157,11 +159,11 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                         terminal.curs_x = 0;
                     }
                     END_KEY!() => {
-                        let invalidString = String::from("");
+                        let invalid_string = String::from("");
                         let curr_row = terminal
                             .content
                             .get(terminal.curs_y as usize)
-                            .unwrap_or(&invalidString);
+                            .unwrap_or(&invalid_string);
                         terminal.curs_x = curr_row.len() as i32;
                     }
                     PAGE_UP!() => {
@@ -190,11 +192,11 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                         terminal.content.push(String::new());
                         terminal.curs_y += 1;
 
-                        let invalidString = String::from("");
+                        let invalid_string = String::from("");
                         let curr_row = terminal
                             .content
                             .get(terminal.curs_y as usize)
-                            .unwrap_or(&invalidString);
+                            .unwrap_or(&invalid_string);
 
                         if terminal.curs_x >= curr_row.len() as i32 {
                             //if we exceed the boundary for our new row,
@@ -240,6 +242,9 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                                 row.drain(byte_idx..byte_idx + char_len);
 
                                 terminal.curs_x -= 1;
+                                if terminal.curs_x < terminal.snip_start {
+                                    terminal.snip_start = terminal.curs_x;
+                                }
                             }
                         } else if terminal.curs_x == 0 && terminal.curs_y > 0 {
                             let current_row = terminal.content.remove(terminal.curs_y as usize);
@@ -253,9 +258,8 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                     ESCAPE_KEY!() => { /* do nothing */ }
                     SPACE_KEY!() => {
                         if terminal.term_mode == EditorMode::Arabizi {
-                            // run arabizi code here
+                            arabizi_process_input(terminal);
                         }
-                        terminal.snip_start = terminal.curs_x;
                         // append space to the buffer
                         if let Some(ch) = input_buf.chars().next() {
                             let row = &mut terminal.content[terminal.curs_y as usize];
@@ -266,6 +270,7 @@ pub(crate) fn editor_process_keypress(terminal: &mut Terminal) -> io::Result<Edi
                             terminal.content[terminal.curs_y as usize]
                                 .insert(byte_idx as usize, ch);
                             terminal.curs_x += 1;
+                            terminal.snip_start = terminal.curs_x;
                         }
                     }
                     //default typing behavior
@@ -298,7 +303,7 @@ pub(crate) fn editor_read_key(buf: &mut String) -> io::Result<i32> {
                 match std::str::from_utf8(&read[0..t]) {
                     Ok(s) => {
                         // add all utf8 to buf
-                        if let Some(ch) = s.chars().next() {
+                        for ch in s.chars() {
                             buf.push(ch);
                         }
                     }
@@ -380,7 +385,8 @@ pub(crate) fn editor_move_cursor(terminal: &mut Terminal, key: i32) -> io::Resul
         ARROW_LEFT!() => {
             if terminal.curs_x > 0 {
                 //bounds checking
-                terminal.curs_x -= 1 // - means move left
+                terminal.curs_x -= 1; // - means move left
+                terminal.snip_start = terminal.curs_x;
             }
             // handle pressing left at start of line
             if terminal.curs_x == 0 && terminal.curs_y > 0 {
@@ -393,12 +399,14 @@ pub(crate) fn editor_move_cursor(terminal: &mut Terminal, key: i32) -> io::Resul
                     .unwrap_or(&invalid_string);
                 //bring us to last character in previous row
                 terminal.curs_x = curr_row.len() as i32;
+                terminal.snip_start = terminal.curs_x;
             }
         }
         ARROW_RIGHT!() => {
             if terminal.curs_x < curr_row.len() as i32 {
                 //bounds checking
-                terminal.curs_x += 1 // + means move right
+                terminal.curs_x += 1; // + means move right
+                terminal.snip_start = terminal.curs_x;
             }
             //handle pressing right at end of line
             if terminal.curs_x == curr_row.len() as i32
@@ -413,6 +421,7 @@ pub(crate) fn editor_move_cursor(terminal: &mut Terminal, key: i32) -> io::Resul
                     .unwrap_or(&invalid_string);
                 //bring us to first character in next row
                 terminal.curs_x = 0;
+                terminal.snip_start = terminal.curs_x;
             }
         }
         ARROW_UP!() => {
@@ -429,6 +438,7 @@ pub(crate) fn editor_move_cursor(terminal: &mut Terminal, key: i32) -> io::Resul
                     //if we exceed the boundary for our new row,
                     // snap back to last character in the row
                     terminal.curs_x = curr_row.len() as i32;
+                    terminal.snip_start = terminal.curs_x;
                 }
             }
         }
@@ -446,6 +456,7 @@ pub(crate) fn editor_move_cursor(terminal: &mut Terminal, key: i32) -> io::Resul
                     //if we exceed the boundary for our new row,
                     // snap back to last character in the row
                     terminal.curs_x = curr_row.len() as i32;
+                    terminal.snip_start = terminal.curs_x;
                 }
             }
         }

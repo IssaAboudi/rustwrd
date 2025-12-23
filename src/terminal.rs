@@ -1,21 +1,18 @@
 #![allow(non_camel_case_types)]
 
-use crate::input::{editor_read_key, EditorMode};
+use crate::input::EditorMode;
 use crate::utils::constants::GET_CURS_POS;
 
-use nix::libc::{
-    c_ushort, exit, ioctl, perror, winsize, EAGAIN, ISTRIP, STDIN_FILENO, STDOUT_FILENO, TIOCGWINSZ,
-};
+use nix::libc::{ioctl, winsize, STDIN_FILENO, TIOCGWINSZ};
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
 use std::ffi::c_int;
-use std::fs;
 use std::io;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Error, Read, Write};
 use std::os::fd::AsRawFd;
 
-use std::fs::{read, File};
+use std::fs::File;
 use std::thread::sleep;
 use std::time::Duration;
 

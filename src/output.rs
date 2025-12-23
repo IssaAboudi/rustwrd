@@ -1,7 +1,7 @@
 use crate::Terminal;
 
 use std::io;
-use std::io::{stdin, stdout, Write};
+use std::io::{stdout, Write};
 
 //Version of our editor
 macro_rules! RUST_WRD {

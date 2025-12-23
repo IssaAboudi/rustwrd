@@ -5,7 +5,7 @@ mod utils;
 use crate::input::{editor_check_keycodes, editor_process_keypress, EditorMode, EditorStates};
 use crate::output::editor_refresh_screen;
 use crate::utils::constants::{CLR_SCREEN, MOV_CURS_HOME};
-use crate::Arabizi::{arabizi_process_input, import_frequencies, LanguageFrequencies};
+use crate::Arabizi::{import_frequencies, LanguageFrequencies};
 use once_cell::sync::Lazy;
 
 mod terminal;
@@ -14,56 +14,56 @@ use terminal::Terminal;
 
 use nix::libc::STDIN_FILENO;
 use nix::sys::termios;
+use phf::phf_map;
 use std::collections::HashMap;
 use std::io::{stdout, Write};
-use std::sync::RwLock;
+use std::sync::OnceLock;
 use std::{env, io};
 
-static LANGUAGE_FREQUENCIES: Lazy<RwLock<LanguageFrequencies>> = Lazy::new(|| {
-    RwLock::new(match import_frequencies() {
-        Ok(freq) => freq,
-        Err(_e) => LanguageFrequencies::default(),
-    })
-});
+static LANGUAGE_FREQUENCIES: OnceLock<LanguageFrequencies> = OnceLock::new();
 
-static EN_TO_AR: Lazy<RwLock<HashMap<char, &str>>> = Lazy::new(|| {
-    RwLock::new(HashMap::from([
-        ('a', "ش"),
-        ('s', "س"),
-        ('d', "ي"),
-        ('f', "ب"),
-        ('g', "ل"),
-        ('h', "ا"),
-        ('j', "ت"),
-        ('k', "ن"),
-        ('l', "م"),
-        (';', "ك"),
-        ('\'', "ط"),
-        ('`', "ذ"),
-        ('q', "ض"),
-        ('w', "ص"),
-        ('e', "ث"),
-        ('r', "ق"),
-        ('t', "ف"),
-        ('y', "غ"),
-        ('u', "ع"),
-        ('i', "ه"),
-        ('o', "خ"),
-        ('p', "ح"),
-        ('[', "ج"),
-        (']', "د"),
-        ('z', "ئ"),
-        ('x', "ء"),
-        ('c', "ؤ"),
-        ('v', "ر"),
-        ('b', "لا"),
-        ('n', "ى"),
-        ('m', "ة"),
-        (',', "و"),
-        ('.', "ز"),
-        ('/', "ظ"),
-    ]))
-});
+fn get_frequencies() -> &'static LanguageFrequencies {
+    LANGUAGE_FREQUENCIES.get_or_init(|| match import_frequencies() {
+        Ok(freq) => freq,
+        Err(_) => LanguageFrequencies::default(),
+    })
+}
+static EN_TO_AR: phf::Map<char, &'static str> = phf_map! {
+    'a' => "ش",
+    's' => "س",
+    'd' => "ي",
+    'f' => "ب",
+    'g' => "ل",
+    'h' => "ا",
+    'j' => "ت",
+    'k' => "ن",
+    'l' => "م",
+    ';' => "ك",
+    '\'' => "ط",
+    '`' => "ذ",
+    'q' => "ض",
+    'w' => "ص",
+    'e' => "ث",
+    'r' => "ق",
+    't' => "ف",
+    'y' => "غ",
+    'u' => "ع",
+    'i' => "ه",
+    'o' => "خ",
+    'p' => "ح",
+    '[' => "ج",
+    ']' => "د",
+    'z' => "ئ",
+    'x' => "ء",
+    'c' => "ؤ",
+    'v' => "ر",
+    'b' => "لا",
+    'n' => "ى",
+    'm' => "ة",
+    ',' => "و",
+    '.' => "ز",
+    '/' => "ظ",
+};
 
 // entry point
 fn main() -> io::Result<()> {
@@ -87,15 +87,6 @@ fn main() -> io::Result<()> {
     if args.len() >= 2 {
         terminal.editor_open_file(&args[1])?;
     }
-
-    //     loop {
-    //         match keycodes() {
-    //             Ok(false) => break,
-    //             Ok(true) => continue,
-    //             Err(_e) => return Err(_e),
-    //         }
-    //     }
-    // }
 
     loop {
         match terminal.term_mode {
