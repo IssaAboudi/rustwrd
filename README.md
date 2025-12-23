@@ -11,6 +11,10 @@ like sending escape sequences and setting terminal flags were copied and transla
 
 I learned a lot throughout this project, and I'm proud of the end result!
 
+## New
+
+This project has been revived as of December 2025
+
 ## Steps to build:
 
 You need to install the rust compiler and cargo package manager. Once those are installed, you can simply
@@ -41,5 +45,6 @@ cargo run test.txt
 - End = Jumps to end of the line
 - PgUp = Scrolls Up
 - PgDwn = Scrolls Down
-
-I may extend this to have more in the future!
+- Ctrl + k = switch to keycode mode (see what unicode characters each letter is)
+- Ctrl + n = normal (typing mode)
+- Ctrl + a = arabizi mode (type in arabic if keystrokes are not in english)
