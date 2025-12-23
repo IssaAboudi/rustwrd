@@ -1,38 +1,39 @@
 #![allow(non_camel_case_types)]
 
-use crate::input::editorReadKey;
+use crate::input::EditorMode;
+use crate::utils::constants::GET_CURS_POS;
 
-use nix::libc::{
-    c_ushort, exit, ioctl, perror, winsize, EAGAIN, ISTRIP, STDIN_FILENO, STDOUT_FILENO, TIOCGWINSZ,
-};
+use nix::libc::{ioctl, winsize, STDIN_FILENO, TIOCGWINSZ};
 use nix::sys::termios;
 use nix::sys::termios::SpecialCharacterIndices::{VMIN, VTIME};
 use std::ffi::c_int;
-use std::fs;
 use std::io;
 use std::io::ErrorKind::Other;
-use std::io::{stdin, stdout, BufRead, BufReader, Error, ErrorKind, Read, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Error, Read, Write};
 use std::os::fd::AsRawFd;
 
-use std::fs::{read, File};
+use std::fs::File;
 use std::thread::sleep;
 use std::time::Duration;
 
 pub(crate) struct Terminal {
-    /*==============Terminal Stuff=================*/
+    /*==============Terminal Stuff================*/
     pub(crate) orig_termios: termios::Termios,
     pub(crate) screen_rows: c_int, //number of rows in terminal window
     pub(crate) screen_cols: c_int, //number of columms in terminal window
     pub(crate) curs_x: c_int,      //horizontal position of the cursor
     pub(crate) curs_y: c_int,      //vertical position of the cursor
+    pub(crate) term_mode: EditorMode, //editor mode
     /*==============Text processing===============*/
     pub(crate) content: Vec<String>, //the text content we are working on
-    pub(crate) v_offset: i32, // vertical scrolling padding
-    pub(crate) fp: String //keep track of file we're editing if we are
+    pub(crate) v_offset: i32,        //vertical scrolling padding
+    pub(crate) fp: String,           //keep track of file we're editing if we are
+    /*===================Arabizi==================*/
+    pub(crate) snip_start: c_int, //start of arabizi snippet (end is curs_x)
 }
 
 impl Terminal {
-    pub(crate) fn enableRawMode(&mut self) -> io::Result<()> {
+    pub(crate) fn enable_raw_mode(&mut self) -> io::Result<()> {
         let fd = stdin().as_raw_fd(); //file descriptor for raw stdin
         self.orig_termios = termios::tcgetattr(fd).unwrap();
 
@@ -42,7 +43,7 @@ impl Terminal {
             termios::InputFlags::IXON // disable sw control flow comamnds
                 | termios::InputFlags::ICRNL
                 //Other flags
-                | termios::InputFlags::BRKINT //break condition causes a SIGINT signal (^c)
+                | termios::InputFlags::BRKINT // break condition causes a SIGINT signal (^c)
                 | termios::InputFlags::INPCK // enables parity checking
                 | termios::InputFlags::ISTRIP, // 8th bit of each input byte to be stripped
         );
@@ -66,20 +67,20 @@ impl Terminal {
         Ok(())
     }
 
-    pub(crate) fn disableRawMode(&self) -> io::Result<()> {
+    pub(crate) fn disable_raw_mode(&self) -> io::Result<()> {
         let fd = stdin().as_raw_fd();
         termios::tcsetattr(fd, termios::SetArg::TCSAFLUSH, &self.orig_termios).unwrap();
         Ok(())
     }
 
-    pub(crate) fn getWindowSize(&mut self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
+    pub(crate) fn get_window_size(&mut self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
         let ws: winsize = unsafe { std::mem::zeroed() };
 
         let result = unsafe { ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) };
         if result == -1 || ws.ws_col == 0 {
             // we tell terminal to move to bottom right edge with large values
             match stdout().write_all(b"\x1b[999C\x1b[999B") {
-                Ok(_c) => self.getCursorPosition(rows, cols),
+                Ok(_c) => self.get_cursor_position(rows, cols),
                 Err(_e) => Err(Error::new(Other, "Error: Failed write at getWindowSize")),
             }
         } else {
@@ -89,10 +90,10 @@ impl Terminal {
         }
     }
 
-    pub(crate) fn getCursorPosition(&self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
+    pub(crate) fn get_cursor_position(&self, rows: &mut c_int, cols: &mut c_int) -> io::Result<()> {
         let mut buf = ['\0'; 32];
 
-        match stdout().write_all(b"\x1b[6n") {
+        match stdout().write_all(GET_CURS_POS) {
             Ok(_t) => {
                 print!("\r\n");
 
@@ -163,7 +164,7 @@ impl Terminal {
         Ok(())
     }
 
-    pub(crate) fn initEditor(&mut self) -> io::Result<()> {
+    pub(crate) fn init_editor(&mut self) -> io::Result<()> {
         self.curs_x = 0;
         self.curs_y = 0;
         self.v_offset = 0;
@@ -171,7 +172,7 @@ impl Terminal {
         self.fp = String::new();
         let mut rows = self.screen_rows;
         let mut cols = self.screen_cols;
-        match self.getWindowSize(&mut rows, &mut cols) {
+        match self.get_window_size(&mut rows, &mut cols) {
             Ok(_c) => {
                 self.screen_rows = rows;
                 self.screen_cols = cols;
@@ -183,7 +184,7 @@ impl Terminal {
     }
 
     // read from file
-    pub(crate) fn editorOpenFile(&mut self, fp: &str) -> io::Result<()> {
+    pub(crate) fn editor_open_file(&mut self, fp: &str) -> io::Result<()> {
         match File::open(fp) {
             Ok(file) => {
                 self.content.pop(); // by default has empty first line - get rid of it when reading from a file
@@ -199,10 +200,11 @@ impl Terminal {
         Ok(())
     }
 
-    pub(crate) fn editorWriteFile(&mut self, fp: String) -> io::Result<()> {
+    pub(crate) fn editor_write_file(&mut self, fp: String) -> io::Result<()> {
         match File::create(fp) {
             Ok(mut file) => {
-                file.write_all(self.content.join("\r\n").as_bytes()).expect("Invalid Write");
+                file.write_all(self.content.join("\r\n").as_bytes())
+                    .expect("Invalid Write");
                 stdout().write_all(b"\r\n\r\n\t\tSaving File, Please Wait")?;
                 stdout().flush()?;
                 sleep(Duration::from_secs(2));
@@ -216,6 +218,6 @@ impl Terminal {
 impl Drop for Terminal {
     fn drop(&mut self) {
         println!("Program Ending\r\n");
-        Terminal::disableRawMode(self).unwrap();
+        Terminal::disable_raw_mode(self).unwrap();
     }
 }
